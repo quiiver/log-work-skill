@@ -110,6 +110,18 @@ class TestCLI(unittest.TestCase):
             entry = json.loads(result.stdout)
             self.assertFalse(entry["tracked"])
 
+    def test_config_set_get_unset(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "state.json")
+            self._run(path, "config", "jiraProject", "MZCLD")
+            self._run(path, "config", "cloudId", "abc")
+            self._run(path, "config", "cloudId")
+            result = self._run(path, "config")
+            self.assertEqual(json.loads(result.stdout), {"jiraProject": "MZCLD"})
+            # config never leaks into per-directory entries
+            entry = json.loads(self._run(path, "get", "/repo").stdout)
+            self.assertNotIn("jiraProject", entry)
+
     def test_extract_keys_cli_reads_stdin(self):
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "state.json")
@@ -150,6 +162,21 @@ class TestCLI(unittest.TestCase):
             result = self._run(state_path, "session-start", input_text=payload)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("isRepo=False", result.stdout)
+
+    def test_session_start_gemini_format_and_cwd_fallback(self):
+        with tempfile.TemporaryDirectory() as d:
+            state_path = os.path.join(d, "state.json")
+            script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state.py")
+            # no cwd on stdin: falls back to the process cwd
+            result = subprocess.run(
+                [sys.executable, script, "--state-path", state_path,
+                 "session-start", "--format", "gemini"],
+                capture_output=True, text=True, input="", cwd=d,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            out = json.loads(result.stdout)["hookSpecificOutput"]
+            self.assertEqual(out["hookEventName"], "SessionStart")
+            self.assertIn(f"SessionStart for {os.path.realpath(d)}\n", out["additionalContext"])
 
     def test_git_username_cli(self):
         with tempfile.TemporaryDirectory() as d:

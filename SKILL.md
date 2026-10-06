@@ -1,6 +1,6 @@
 ---
 name: log-work
-description: Match, create, and log work against Jira tickets from Claude Code sessions, plus a private monthly Confluence work log for unticketed work. Also backfills the log from Jira comments, GitHub PRs and claude-mem history (`/log-work backfill`) and writes period reports such as quarterly reviews (`/log-work report Q3 2026`). Triggered automatically at the start of every session (via a SessionStart hook injecting context) to catch up any unlogged work from the previous session and resolve which ticket the current directory's work belongs to. Also invocable manually as `/log-work` to log the current conversation right now, or to force a rematch if the resolved ticket is wrong. Default Jira project for new tickets is MZCLD.
+description: Match, create, and log work against Jira tickets from Claude Code sessions, plus a private monthly Confluence work log for unticketed work. Also backfills the log from Jira comments, GitHub PRs and claude-mem history (`/log-work backfill`) and writes period reports such as quarterly reviews (`/log-work report Q3 2026`). Triggered automatically at the start of every session (via a SessionStart hook injecting context) to catch up any unlogged work from the previous session and resolve which ticket the current directory's work belongs to. Also invocable manually as `/log-work` to log the current conversation right now, or to force a rematch if the resolved ticket is wrong. The Jira project for new tickets is set on first run.
 ---
 
 # log-work
@@ -25,6 +25,30 @@ schema with `ToolSearch` (`query: "select:mcp__plugin_atlassian_atlassian__<name
 — these are deferred tools and calling them without first fetching the
 schema will fail.
 
+## Config
+
+Per-user settings live in the state file under `__config__`. The
+SessionStart context prints them (`Config: {...}` or `Config: none`);
+otherwise read them with `state.py config`, set one with
+`state.py config <key> <value>`, and unset one with `state.py config <key>`.
+Below, `<jiraProject>`, `<cloudId>` etc. mean the configured value.
+
+Resolve a missing key the first time a procedure needs it, save it, and
+never ask again:
+
+| Key | How to resolve |
+|---|---|
+| `jiraProject` | Ask the user once: "Which Jira project should new tickets go in?" |
+| `cloudId` | `getAccessibleAtlassianResources`. If there are several sites, ask which one. |
+| `accountId` | `atlassianUserInfo` |
+| `confluenceSpaceKey`, `confluenceSpaceId` | `executeRead` `getConfluencePersonalSpace` (`personalSpace.key` / `.id`) |
+| `workLogFolderId` | CQL `space = "<confluenceSpaceKey>" AND type = folder AND title = "Work Log"`, else create it (private, space root) |
+| `reportsFolderId` | Same as above, but titled `Reports` and under `workLogFolderId` |
+| `githubLogin` | `gh api user --jq .login` |
+
+If a call using a cached ID fails with not-found, unset that key, resolve
+it again, and retry once.
+
 ## Work log (Confluence)
 
 A private monthly log in the user's personal Confluence space. Every logged
@@ -34,11 +58,8 @@ few monthly pages instead of crawling Jira comments.
 - **Location:** personal space (find via `executeRead` `getConfluencePersonalSpace`),
   folder titled `Work Log`, one page per month titled `Work Log — YYYY-MM`,
   and a `Reports` subfolder for generated reports.
-- **Known IDs** (use directly; fall back to find-or-create if a call 404s):
-  cloudId `d8febd08-c6e9-4c03-9c13-db37c2369ce5`, accountId
-  `620ae3ea59709300698d7b72`, space key `~620ae3ea59709300698d7b72` /
-  space id `87164244`, `Work Log` folder `3141500971`, `Reports` folder
-  `3142811727`. GitHub login is `quiiver` (not `wstuckey`).
+- **IDs come from config** (see **Config** below): `workLogFolderId`,
+  `reportsFolderId`, `confluenceSpaceKey` / `confluenceSpaceId`.
 - **Find or create:** CQL `space = "<personalSpaceKey>" AND title = "<title>"`.
   If the folder is missing, `createConfluenceContent` with
   `contentType: "folder"`, `private: true` at the space root. If the month
@@ -121,7 +142,7 @@ this yourself.
    or multiple such candidates, skip silently — don't ask the user, don't
    report failure.
 6. Don't announce any of this verbosely to the user — a brief one-line
-   mention (e.g. "Logged last session to MZCLD-42, continuing on it") is
+   mention (e.g. "Logged last session to PROJ-42, continuing on it") is
    enough. If nothing needed doing (already a continuation, nothing
    pending), say nothing at all.
 
@@ -143,21 +164,21 @@ flow needs a ticket resolved.
    directory's basename and whatever the user has said about the task so
    far this session (check the directory for a `README.md` title line
    too, if present). Call `searchJiraIssuesUsingJql` with:
-   `project = MZCLD AND assignee = currentUser() AND statusCategory != Done AND text ~ "<keywords>"`
+   `project = <jiraProject> AND assignee = currentUser() AND statusCategory != Done AND text ~ "<keywords>"`
    If that returns nothing, retry with just
-   `project = MZCLD AND assignee = currentUser() AND statusCategory != Done`
+   `project = <jiraProject> AND assignee = currentUser() AND statusCategory != Done`
    and rank by textual similarity yourself.
 3. **Disambiguate with the user.** Use `AskUserQuestion` with the
    candidates you found (ticket key + summary each, up to 2) plus these two
    options, always present:
-   - **Create a new MZCLD ticket** → step 4.
+   - **Create a new <jiraProject> ticket** → step 4.
    - **Log to Confluence work log only** → `ticketKey = WORKLOG`; return to
      the calling step (skip step 5).
    If more than 2 plausible candidates exist, list the extras in the
    question text so the user can pick one via "Other".
 4. **Create new ticket** only if the user picks that option. Draft a summary and description from
    the session's context, propose them to the user, and only after they
-   confirm, call `createJiraIssue` with `project: "MZCLD"`, `issueType: "Task"`.
+   confirm, call `createJiraIssue` with `project: "<jiraProject>"`, `issueType: "Task"`.
    Then resolve the current user's account id (`atlassianUserInfo`, or
    `lookupJiraAccountId` if you need to look up by email) and assign the
    new ticket to them via `editJiraIssue`.
@@ -167,7 +188,7 @@ flow needs a ticket resolved.
    to get the current branch name, pipe it into `state.py extract-keys`
    to get the exact ticket keys it contains, and check whether
    `ticketKey` is exactly one of them — don't use a plain substring check
-   (`MZCLD-9` is a substring of `MZCLD-90`, which would wrongly treat two
+   (`PROJ-9` is a substring of `PROJ-90`, which would wrongly treat two
    different tickets' branches as the same). If `ticketKey` isn't among
    the extracted keys (true whenever the match came from step 2, 3, or 4
    — step 1 by definition already satisfies this), create and switch to
@@ -271,7 +292,7 @@ work log.
      state and repo;
    - reviews:
      `gh search prs --reviewed-by=@me --updated=<range> --json author,repository`,
-     excluding author `quiiver` and bots. This is approximate, since it
+     excluding author `<githubLogin>` and bots. This is approximate, since it
      matches on updated, not reviewed, date; say so.
    - Explain large "closed unmerged" counts if they come from known test
      runs.

@@ -83,6 +83,25 @@ def clear_ticket(state, cwd):
     return entry
 
 
+# Per-user settings (Jira project, Atlassian/Confluence/GitHub IDs) live in the
+# state file under a reserved key; real entries are keyed by absolute paths.
+CONFIG_KEY = "__config__"
+
+
+def get_config(state):
+    return dict(state.get(CONFIG_KEY, {}))
+
+
+def set_config(state, key, value):
+    config = get_config(state)
+    if value:
+        config[key] = value
+    else:
+        config.pop(key, None)
+    state[CONFIG_KEY] = config
+    return config
+
+
 def extract_ticket_keys(text):
     seen = []
     for match in TICKET_KEY_RE.findall(text or ""):
@@ -209,11 +228,40 @@ def cmd_slugify(args):
     print(slugify_summary(text))
 
 
+def cmd_config(args):
+    state = load_state(args.state_path)
+    if args.key is None:
+        print(json.dumps(get_config(state), sort_keys=True))
+        return
+    config = set_config(state, args.key, args.value)
+    save_state(args.state_path, state)
+    print(json.dumps(config, sort_keys=True))
+
+
+def wrap_context(text, fmt):
+    """Shape hook output for the harness: plain stdout (Claude Code, Codex) or JSON."""
+    if fmt == "gemini":
+        return json.dumps(
+            {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}
+        )
+    if fmt == "cursor":
+        return json.dumps({"additional_context": text})
+    if fmt == "copilot":
+        return json.dumps({"additionalContext": text})
+    return text
+
+
 def cmd_session_start(args):
-    payload = json.loads(sys.stdin.read())
-    cwd = payload["cwd"]
+    raw = sys.stdin.read() if not sys.stdin.isatty() else ""
+    try:
+        payload = json.loads(raw) if raw.strip() else {}
+    except json.JSONDecodeError:
+        payload = {}
+    # Harnesses that don't send cwd on stdin run the hook in the session's directory.
+    cwd = payload.get("cwd") or os.getcwd()
     state = load_state(args.state_path)
     entry = get_entry(state, cwd)
+    config = get_config(state)
 
     branch = git_current_branch(cwd)
     is_repo = branch is not None
@@ -231,12 +279,13 @@ def cmd_session_start(args):
         f"Git: isRepo={is_repo}, currentBranch={branch or 'n/a'}",
         f"Ticket keys found in branch name: {', '.join(branch_keys) or 'none'}",
         f"Ticket keys found in recent commits: {', '.join(commit_keys) or 'none'}",
+        f"Config: {json.dumps(config, sort_keys=True) if config else 'none'}",
         "",
         'ACTION REQUIRED: invoke the "log-work" skill now '
         '(Skill tool, skill: "log-work", args: "session-start") to process this '
         "session start before addressing the user's first message.",
     ]
-    print("\n".join(lines))
+    print(wrap_context("\n".join(lines), args.format))
 
 
 def build_parser():
@@ -283,7 +332,15 @@ def build_parser():
     p = sub.add_parser("slugify")
     p.set_defaults(func=cmd_slugify)
 
+    p = sub.add_parser("config", help="print config, set KEY VALUE, or unset KEY")
+    p.add_argument("key", nargs="?")
+    p.add_argument("value", nargs="?", default="")
+    p.set_defaults(func=cmd_config)
+
     p = sub.add_parser("session-start")
+    p.add_argument(
+        "--format", choices=["plain", "gemini", "cursor", "copilot"], default="plain"
+    )
     p.set_defaults(func=cmd_session_start)
 
     return parser
