@@ -238,8 +238,9 @@ ticket", "that's not it"):
 
 ## Backfill procedure (`/log-work backfill <since>`)
 
-Rebuilds work log entries for a past window (default: 90 days) from three
-sources. Read-only on every source; the only writes are to the work log.
+Rebuilds work log entries for a past window (default: 90 days) from Jira,
+GitHub and claude-mem, plus meetings when the Zoom and Calendar connectors
+are available. Read-only on every source; the only writes are to the work log.
 
 1. **Jira comments.** Candidate tickets: `executeRead` `getMyWork`
    (`type: "worked_on"`, `sinceDays`) plus JQL
@@ -258,7 +259,37 @@ sources. Read-only on every source; the only writes are to the work log.
    month to a subagent along with that month's PR lines and existing
    entries. Files are large (~250KB/month), so subagents should process
    them with python in chunks.
-4. **Merge rules** (give these to the subagents):
+4. **Meetings (Zoom + Google Calendar), optional, via the Zoom and Google
+   Calendar connectors.**
+   - **Attended meetings:** Zoom meeting search over the window, split by
+     month (each call returns at most 200). Keep only meetings whose
+     `meeting_roles` include `attendee`; `invitee` alone means invited, not
+     joined. Ignore the search's `has_summary` / `has_transcript` flags,
+     because they are false even when notes exist.
+   - **Notes:** call Zoom get-meeting-assets for each meeting, using its
+     **`meeting_uuid`**. A numeric meeting ID only returns the latest
+     instance of a recurring meeting. Calendar invites carry the numeric ID
+     (`zoom.us/j/<id>` in the location or description); use it for one-off
+     meetings that search doesn't return. Responses are ~60KB because they
+     include the transcript, so run this in subagents and keep only
+     `my_notes.content_markdown`.
+   - **Calendar:** list events per week for things Zoom can't see:
+     conferences, workweeks and offsites, in-person events, talks and demos
+     you gave, and focus/OOO blocks.
+   - **What to take from notes:** only outcomes, decisions and action items
+     about the user's own work (e.g. "agreed to review MozCloud initiative
+     gaps"). **Never** copy feedback about people, personnel or hiring
+     matters, performance, org politics, compensation, health or personal
+     life, and never copy transcript text. For 1:1s, record at most the
+     work topics, and nothing attributed to the other person. A meeting
+     with no outcome about the user's work produces no entry.
+   - **Signals worth an entry:** a presentation or demo given, a conference
+     or workweek attended, a planning series, a decision that changed the
+     direction of the user's work, or a commitment the user made.
+   - **Report data:** the number of meetings attended and the hours spent,
+     plus cross-team groups by name. Don't put 1:1 counterparts' names in
+     shareable reports.
+5. **Merge rules** (give these to the subagents):
    - Group into work items (a theme over one or a few days), not one entry
      per session or PR; roughly 5–15 per month.
    - Never duplicate an existing entry; propose PR-link additions to it
@@ -272,11 +303,12 @@ sources. Read-only on every source; the only writes are to the work log.
      the user confirms.
    - Never invent details; mark uncertain status (e.g. "uncommitted at last
      record") as ongoing.
-5. **Write** each month's page (create if missing, private), entries sorted
+6. **Write** each month's page (create if missing, private), entries sorted
    newest first; existing entries keep their place ahead of new ones on the
    same date. Run the privacy check. Report per-month counts, what was
    excluded, and coverage gaps (SREIN tickets commented on without
-   watching, reviews, Slack-only work).
+   watching, reviews, Slack-only work, and meetings if their connectors
+   weren't available).
 
 ## Report procedure (`/log-work report <period>`)
 
@@ -296,13 +328,16 @@ work log.
      matches on updated, not reviewed, date; say so.
    - Explain large "closed unmerged" counts if they come from known test
      runs.
+   - Meetings, if the connectors are available: meetings attended, hours,
+     talks and demos given, conferences/workweeks, and cross-team groups
+     (see backfill step 4 for the privacy rules).
 3. Structure:
    - Summary (3–5 outcome-first bullets)
    - By the numbers
    - One section per theme (outcome line, then dated bullets, then who
      benefited and key PRs)
    - Incidents
-   - Reviews and collaboration
+   - Reviews and collaboration (including meetings and visibility)
    - Key decisions table
    - Carried into the next period (ongoing items)
    - Coverage notes

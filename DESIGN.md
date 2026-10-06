@@ -151,6 +151,7 @@ All sources are read-only; the only writes go to the work log.
 | Jira | Candidates come from `getMyWork` (worked_on) plus JQL on assignee, reporter, watcher or past assignee. `listJiraIssueComments` per ticket, filtered to the user's accountId and the window. Parallel subagents above ~30 tickets. |
 | GitHub | `gh search prs --author=@me --created=">=<since>"`. This is the authority on merged/closed status and on which repo a PR is in. |
 | claude-mem | `~/.claude-mem/claude-mem.db`, table `session_summaries`, exported per month. Each month goes to one subagent, together with that month's PRs and existing entries. |
+| Zoom + Calendar | Zoom search, keeping meetings where the user's role is `attendee`. Get-meeting-assets **by UUID** (a numeric ID returns only the latest instance of a recurring meeting) and keep only `my_notes.content_markdown`; the search's summary flags are unreliable. The calendar adds conferences, in-person events and talks. Only work outcomes and decisions are taken from notes, never feedback about people, personnel or personal matters. |
 
 Merge rules:
 - Group into work items (a theme over a few days), not one entry per
