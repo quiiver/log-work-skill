@@ -7,11 +7,19 @@ Config keys (set with `state.py config <key> <value>`):
   otelProtocol    http/protobuf (default), http/json or grpc
   otelGcpProject  GCP project the telemetry belongs to, e.g. cloudeng-agents-nonprod
   otelAuth        gcloud (default when otelGcpProject is set) or none
+  otelRegion      GCP region for metric series (default us-central1; GCP only)
+  otelInstance    instance label for metric series (default: short hostname; GCP only)
+
+Google's Telemetry API stores metrics as Prometheus series, which need an instance
+and a real region (not "global"); Claude Code sends neither, so they are added as
+resource attributes.
 """
 import argparse
 import json
 import os
+import re
 import shutil
+import socket
 import sys
 import time
 
@@ -28,6 +36,7 @@ MANAGED_ENV = [
     "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE",
     "OTEL_METRICS_INCLUDE_VERSION",
 ]
+GCP_ATTRS = ["gcp.project_id", "cloud.region", "service.instance.id"]
 
 
 def _set_resource_attr(current, key, value):
@@ -35,6 +44,11 @@ def _set_resource_attr(current, key, value):
     if value:
         pairs.append(f"{key}={value}")
     return ",".join(pairs)
+
+
+def _attr_value(value):
+    # OTEL_RESOURCE_ATTRIBUTES values can't hold spaces, commas, quotes etc.
+    return re.sub(r"[^A-Za-z0-9._:/-]", "-", value)
 
 
 def apply(settings, config, helper=HELPER):
@@ -60,7 +74,14 @@ def apply(settings, config, helper=HELPER):
         "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE": "cumulative",
         "OTEL_METRICS_INCLUDE_VERSION": "true",
     })
-    attrs = _set_resource_attr(env.get("OTEL_RESOURCE_ATTRIBUTES"), "gcp.project_id", project)
+    gcp = {
+        "gcp.project_id": project,
+        "cloud.region": config.get("otelRegion", "us-central1") if project else None,
+        "service.instance.id": config.get("otelInstance", socket.gethostname().split(".")[0]) if project else None,
+    }
+    attrs = env.get("OTEL_RESOURCE_ATTRIBUTES")
+    for key in GCP_ATTRS:
+        attrs = _set_resource_attr(attrs, key, _attr_value(gcp[key]) if gcp[key] else None)
     if attrs:
         env["OTEL_RESOURCE_ATTRIBUTES"] = attrs
     else:
@@ -77,7 +98,9 @@ def disable(settings, helper=HELPER):
     env = out.get("env", {})
     for key in MANAGED_ENV:
         env.pop(key, None)
-    attrs = _set_resource_attr(env.get("OTEL_RESOURCE_ATTRIBUTES"), "gcp.project_id", None)
+    attrs = env.get("OTEL_RESOURCE_ATTRIBUTES")
+    for key in GCP_ATTRS:
+        attrs = _set_resource_attr(attrs, key, None)
     if attrs:
         env["OTEL_RESOURCE_ATTRIBUTES"] = attrs
     else:

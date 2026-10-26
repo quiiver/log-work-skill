@@ -45,7 +45,7 @@ never ask again:
 | `workLogFolderId` | CQL `space = "<confluenceSpaceKey>" AND type = folder AND title = "Work Log"`, else create it (private, space root) |
 | `reportsFolderId` | Same as above, but titled `Reports` and under `workLogFolderId` |
 | `githubLogin` | `gh api user --jq .login` |
-| `otelEndpoint`, `otelProtocol`, `otelGcpProject`, `otelAuth` | Only for **OTel setup** (below): ask the user |
+| `otelEndpoint`, `otelProtocol`, `otelGcpProject`, `otelAuth`, `otelRegion`, `otelInstance` | Only for **OTel setup** (below): ask the user |
 
 If a call using a cached ID fails with not-found, unset that key, resolve
 it again, and retry once.
@@ -349,6 +349,16 @@ work log.
      Cloud Logging for `<otelGcpProject>`. Include both `service.name`
      values (`claude-code` and `claude-code-desktop`). Cost is a list-price
      estimate; say so.
+     - **Metrics** are Prometheus counters such as
+       `prometheus.googleapis.com/claude_code.cost.usage/counter`, and
+       their names keep the dots. Query them with PromQL at
+       `https://monitoring.googleapis.com/v1/projects/<id>/location/global/prometheus/api/v1/query`,
+       using the quoted-name form, e.g.
+       `sum by ("session.id") ({"__name__"="claude_code.cost.usage"})`.
+       Attributes keep their dots too (`"session.id"`, `"user.email"`).
+     - **Events** go to Cloud Logging as one log per event name
+       (`logs/api_request`, `logs/tool_result`, `logs/user_prompt`, …).
+       Use `gcloud logging read` and filter on the session ID.
    - Meetings, if the connectors are available: meetings attended, hours,
      talks and demos given, conferences/workweeks, and cross-team groups
      (see backfill step 4 for the privacy rules).
@@ -385,6 +395,11 @@ to the work log.
      Prometheus series (hence cumulative temporality), and events land in
      Cloud Logging. Google recommends gRPC, but keep `http/protobuf`,
      because the gcloud headers helper only works over HTTP.
+   - Metrics are rejected with **400 Bad Request** unless the resource has
+     an instance and a real region ("global" is refused). Claude Code sends
+     neither, so `otel_setup.py` adds `service.instance.id` (`otelInstance`,
+     default the short hostname) and `cloud.region` (`otelRegion`, default
+     `us-central1`) to `OTEL_RESOURCE_ATTRIBUTES`.
    - `otelGcpProject` must be the project **ID**, not its display name
      (e.g. `moz-fx-cloudeng-agents-nonprod`, not `cloudeng-agents-nonprod`).
      Resolve it with `gcloud projects list --filter='name~<name>'`.
@@ -410,7 +425,8 @@ to the work log.
      `x-goog-user-project` on each refresh. Never write a token into
      settings or config.
 4. Tell the user to start a new session. To verify, look for
-   `claude_code.session.count` in the project's Cloud Monitoring. If
+   `claude_code.session.count` in the project's Cloud Monitoring, using the
+   PromQL form under **Report procedure**. If
    nothing arrives, run `claude --debug-file <path>` and look for
    `[3P telemetry]` errors. Also check once that the ledger's `session_id`
    matches the `session.id` on an exported event.
