@@ -45,6 +45,7 @@ never ask again:
 | `workLogFolderId` | CQL `space = "<confluenceSpaceKey>" AND type = folder AND title = "Work Log"`, else create it (private, space root) |
 | `reportsFolderId` | Same as above, but titled `Reports` and under `workLogFolderId` |
 | `githubLogin` | `gh api user --jq .login` |
+| `otelEndpoint`, `otelProtocol`, `otelGcpProject`, `otelAuth` | Only for **OTel setup** (below): ask the user |
 
 If a call using a cached ID fails with not-found, unset that key, resolve
 it again, and retry once.
@@ -90,6 +91,16 @@ few monthly pages instead of crawling Jira comments.
   - For ticketed work, keep it to heading + Category + one-line outcome +
     ticket link; the detail lives in the Jira comment.
 
+## Jira & Work Log Hygiene
+
+- Before posting a Jira comment, read existing comments on the ticket and only post what is new. Keep updates minimal and avoid repeating per-session comments.
+- Add only one Confluence work-log entry per session.
+- Confirm with the user before writing to Confluence when the task was described as read-only.
+- No ticket never means no log. If a session's work has no ticket, or
+  matching was skipped or never resolved (no state entry, hook ignored
+  mid-task), log it to the work log as `WORKLOG`. Only skip sessions with
+  no work in them (tab cleanups, one-off lookups, statusline tweaks).
+
 ### Logging a summary
 
 Used wherever a procedure below says "log the summary":
@@ -130,7 +141,7 @@ this yourself.
    - Otherwise, run the **Matching procedure** below to resolve a
      `ticketKey`.
 4. Once matching resolves a `ticketKey` (found, confirmed, or newly
-   created), run `state.py set-ticket <cwd> <ticketKey> --branch <currentBranch-or-empty>`
+   created), run `state.py set-ticket <cwd> <ticketKey> --branch <currentBranch-or-empty> --session <Session id from the SessionStart context>`
    (pass `--branch` with the current git branch name for git repos; omit
    `--branch` entirely for non-git directories — same rule as the manual
    procedure uses).
@@ -212,6 +223,7 @@ flow needs a ticket resolved.
 
 `/log-work backfill [since]` → **Backfill procedure**.
 `/log-work report <period>` → **Report procedure**.
+`/log-work setup-otel` → **OTel setup**.
 
 Default behavior (no arguments and no special instruction from the user in
 the same message):
@@ -220,7 +232,7 @@ the same message):
    worked on, key decisions, outcome so far).
 2. Check `state.py get <cwd>`. If there's no `ticketKey` yet, run the
    **Matching procedure** to resolve one, then run
-   `state.py set-ticket <cwd> <ticketKey> --branch <currentBranch-or-empty>`
+   `state.py set-ticket <cwd> <ticketKey> --branch <currentBranch-or-empty> --session <Session id from the SessionStart context>`
    (pass `--branch` with the current git branch name for git repos; omit
    `--branch` entirely for non-git directories).
 3. Log the summary (see **Logging a summary**) against the resolved
@@ -232,7 +244,7 @@ ticket", "that's not it"):
 
 1. Run `state.py clear <cwd>`.
 2. Run the **Matching procedure** to resolve a new `ticketKey`.
-3. Run `state.py set-ticket <cwd> <ticketKey> --branch <currentBranch-or-empty>`
+3. Run `state.py set-ticket <cwd> <ticketKey> --branch <currentBranch-or-empty> --session <Session id from the SessionStart context>`
    (pass `--branch` with the current git branch name for git repos; omit
    `--branch` entirely for non-git directories).
 
@@ -328,6 +340,15 @@ work log.
      matches on updated, not reviewed, date; say so.
    - Explain large "closed unmerged" counts if they come from known test
      runs.
+   - Claude usage, if OTel is set up: join `log-work-sessions.jsonl`
+     (next to the state file; one row per session start or ticket change)
+     to Claude Code's metrics on `session.id`, and sum
+     `claude_code.active_time.total`, `cost.usage`, `token.usage`,
+     `lines_of_code.count` and `commit.count`/`pull_request.count` per work
+     item and per theme. Metrics live in Cloud Monitoring and events in
+     Cloud Logging for `<otelGcpProject>`. Include both `service.name`
+     values (`claude-code` and `claude-code-desktop`). Cost is a list-price
+     estimate; say so.
    - Meetings, if the connectors are available: meetings attended, hours,
      talks and demos given, conferences/workweeks, and cross-team groups
      (see backfill step 4 for the privacy rules).
@@ -344,6 +365,45 @@ work log.
 4. Publish privately under the `Reports` folder, titled e.g.
    `Q3 2026 Work Report — <name>`, and run the privacy check. Give the user
    the link and the caveats they should check before sharing.
+
+## OTel setup (`/log-work setup-otel`)
+
+Sends Claude Code's own telemetry (metrics + events, never prompt or tool
+content) to an OTLP collector, e.g. the Google Cloud Monitoring collector,
+starting with `cloudeng-agents-nonprod`. The session ledger is the join key
+to the work log.
+
+1. Ask the user for the collector endpoint (required; never guess it), the
+   GCP project, the protocol (default `http/protobuf`) and whether the
+   collector needs Google auth (default yes when a project is given). Save
+   each with `state.py config otelEndpoint <url>` / `otelGcpProject` /
+   `otelProtocol` / `otelAuth gcloud|none`.
+2. Run `python3 ~/.claude/skills/log-work/scripts/otel_setup.py --dry-run`
+   and show the user the changes it would make to `~/.claude/settings.json`.
+3. On a clear yes, run it again without `--dry-run`. It writes a backup of
+   `settings.json` first.
+   - It sets `CLAUDE_CODE_ENABLE_TELEMETRY`, the OTLP exporters, endpoint
+     and protocol, cumulative metric temporality (needed by Cloud
+     Monitoring), `OTEL_METRICS_INCLUDE_VERSION`, and
+     `gcp.project_id=<project>` in `OTEL_RESOURCE_ATTRIBUTES`.
+   - With `otelAuth gcloud`, it points `otelHeadersHelper` at
+     `scripts/otel_headers.py`, which prints a short-lived
+     `gcloud auth print-access-token` bearer token plus
+     `x-goog-user-project` on each refresh. Never write a token into
+     settings or config.
+4. Tell the user to start a new session. To verify, look for
+   `claude_code.session.count` in the project's Cloud Monitoring. If
+   nothing arrives, run `claude --debug-file <path>` and look for
+   `[3P telemetry]` errors. Also check once that the ledger's `session_id`
+   matches the `session.id` on an exported event.
+5. To move to another collector or project, change the config and re-run
+   step 2. To turn telemetry off, run `otel_setup.py --disable`.
+- Never enable `OTEL_LOG_USER_PROMPTS`, `OTEL_LOG_TOOL_DETAILS`,
+  `OTEL_LOG_TOOL_CONTENT` or `OTEL_LOG_RAW_API_BODIES` unless the user
+  explicitly asks.
+- Repo-level `.claude/settings.json` can't set exporter variables, and
+  managed settings override user ones. If managed settings already
+  configure telemetry, report that and stop.
 
 ## Opt-out
 

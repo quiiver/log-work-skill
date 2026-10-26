@@ -167,8 +167,26 @@ choosing to run the command.
 - State is keyed by directory and shared across harnesses, so a session in
   Codex and one in Claude Code in the same repo use the same ticket.
 
+## Claude usage telemetry (optional)
+
+`/log-work setup-otel` points Claude Code's OpenTelemetry export (metrics and
+events only, never prompt or tool content) at an OTLP collector, such as the
+Google Cloud Monitoring collector. The endpoint and project are config, so
+moving to another collector is one config change and a re-run:
+
+```bash
+python3 ~/.claude/skills/log-work/scripts/state.py config otelEndpoint <collector-url>
+python3 ~/.claude/skills/log-work/scripts/state.py config otelGcpProject cloudeng-agents-nonprod
+python3 ~/.claude/skills/log-work/scripts/otel_setup.py --dry-run   # review, then run without --dry-run
+```
+
+With a GCP project set, auth uses `scripts/otel_headers.py`, which issues
+short-lived `gcloud` tokens. Every session start and ticket change is appended
+to `~/.claude/log-work-sessions.jsonl`, so reports can join usage data to work
+items on `session.id`.
+
 ## Tests
 
 ```bash
-cd ~/.claude/skills/log-work/scripts && python3 -m unittest test_state
+cd ~/.claude/skills/log-work/scripts && python3 -m unittest test_state test_otel_setup
 ```

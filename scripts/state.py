@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 DEFAULT_STATE_PATH = os.path.expanduser("~/.claude/log-work-state.json")
 TICKET_KEY_RE = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
@@ -72,6 +73,17 @@ def set_last_logged_session(state, cwd, session_id):
     entry["lastLoggedSessionId"] = session_id
     state[cwd] = entry
     return entry
+
+
+def ledger_path(state_path):
+    # Session -> work item history, joined to Claude Code OTel data on session.id.
+    return os.path.join(os.path.dirname(state_path), "log-work-sessions.jsonl")
+
+
+def append_ledger(state_path, record):
+    record = {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), **record}
+    with open(ledger_path(state_path), "a") as f:
+        f.write(json.dumps(record, sort_keys=True) + "\n")
 
 
 def clear_ticket(state, cwd):
@@ -183,6 +195,10 @@ def cmd_set_ticket(args):
     state = load_state(args.state_path)
     entry = set_ticket(state, args.cwd, args.ticket_key, args.branch)
     save_state(args.state_path, state)
+    if args.session:
+        append_ledger(args.state_path, {"event": "set-ticket", "session_id": args.session,
+                                        "cwd": args.cwd, "ticketKey": args.ticket_key,
+                                        "branch": args.branch})
     print(json.dumps(entry))
 
 
@@ -270,12 +286,18 @@ def cmd_session_start(args):
     commit_keys = [
         k for k in extract_ticket_keys("\n".join(commits)) if k not in branch_keys
     ]
+    session_id = payload.get("session_id")
+    if session_id and entry["tracked"]:
+        append_ledger(args.state_path, {"event": "session-start", "session_id": session_id,
+                                        "cwd": cwd, "source": payload.get("source"),
+                                        "ticketKey": entry["ticketKey"], "branch": branch})
 
     lines = [
         f"log-work skill — SessionStart for {cwd}",
         "",
         f'State: tracked={entry["tracked"]}, ticketKey={entry["ticketKey"] or "none"}, '
         f'storedBranch={entry["branch"] or "none"}, pendingLog={entry["pendingLog"]}',
+        f"Session: {session_id or 'unknown'}",
         f"Git: isRepo={is_repo}, currentBranch={branch or 'n/a'}",
         f"Ticket keys found in branch name: {', '.join(branch_keys) or 'none'}",
         f"Ticket keys found in recent commits: {', '.join(commit_keys) or 'none'}",
@@ -301,6 +323,7 @@ def build_parser():
     p.add_argument("cwd")
     p.add_argument("ticket_key")
     p.add_argument("--branch", default=None)
+    p.add_argument("--session", default=None, help="session id, recorded in the ledger")
     p.set_defaults(func=cmd_set_ticket)
 
     p = sub.add_parser("set-pending")

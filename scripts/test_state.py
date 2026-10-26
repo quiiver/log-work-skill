@@ -178,6 +178,19 @@ class TestCLI(unittest.TestCase):
             self.assertEqual(out["hookEventName"], "SessionStart")
             self.assertIn(f"SessionStart for {os.path.realpath(d)}\n", out["additionalContext"])
 
+    def test_session_ledger(self):
+        with tempfile.TemporaryDirectory() as d:
+            state_path = os.path.join(d, "state.json")
+            payload = json.dumps({"cwd": d, "session_id": "s-42", "source": "startup"})
+            out = self._run(state_path, "session-start", input_text=payload).stdout
+            self.assertIn("Session: s-42", out)
+            self._run(state_path, "set-ticket", d, "WORKLOG", "--session", "s-42")
+            with open(os.path.join(d, "log-work-sessions.jsonl")) as f:
+                rows = [json.loads(line) for line in f]
+            self.assertEqual([r["event"] for r in rows], ["session-start", "set-ticket"])
+            self.assertEqual({r["session_id"] for r in rows}, {"s-42"})
+            self.assertEqual(rows[1]["ticketKey"], "WORKLOG")
+
     def test_git_username_cli(self):
         with tempfile.TemporaryDirectory() as d:
             state_path = os.path.join(d, "state.json")
