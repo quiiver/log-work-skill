@@ -373,11 +373,29 @@ content) to an OTLP collector, e.g. the Google Cloud Monitoring collector,
 starting with `cloudeng-agents-nonprod`. The session ledger is the join key
 to the work log.
 
-1. Ask the user for the collector endpoint (required; never guess it), the
-   GCP project, the protocol (default `http/protobuf`) and whether the
-   collector needs Google auth (default yes when a project is given). Save
-   each with `state.py config otelEndpoint <url>` / `otelGcpProject` /
-   `otelProtocol` / `otelAuth gcloud|none`.
+1. Ask the user for the collector endpoint (never guess it), the GCP
+   project, the protocol (default `http/protobuf`) and whether the collector
+   needs Google auth (default yes when a project is given). Save each with
+   `state.py config otelEndpoint <url>` / `otelGcpProject` / `otelProtocol` /
+   `otelAuth gcloud|none`.
+   - **Google Cloud Observability:** the endpoint is
+     `https://telemetry.googleapis.com` (the Telemetry/OTLP API). It takes
+     OTLP directly, with no collector of our own; the SDK appends
+     `/v1/metrics` and `/v1/logs`. Metrics land in Cloud Monitoring as
+     Prometheus series (hence cumulative temporality), and events land in
+     Cloud Logging. Google recommends gRPC, but keep `http/protobuf`,
+     because the gcloud headers helper only works over HTTP.
+   - `otelGcpProject` must be the project **ID**, not its display name
+     (e.g. `moz-fx-cloudeng-agents-nonprod`, not `cloudeng-agents-nonprod`).
+     Resolve it with `gcloud projects list --filter='name~<name>'`.
+   - Pre-flight, read-only: check that the API is enabled with
+     `gcloud services list --project <id> --enabled --filter='config.name=telemetry.googleapis.com'`.
+     Check that the user holds `telemetry.metrics.write`,
+     `telemetry.logs.write` and `serviceusage.services.use` with a
+     Resource Manager `projects/<id>:testIamPermissions` call; these come
+     from `roles/telemetry.writer` plus
+     `roles/serviceusage.serviceUsageConsumer`. If either check fails,
+     stop and tell the user what's missing.
 2. Run `python3 ~/.claude/skills/log-work/scripts/otel_setup.py --dry-run`
    and show the user the changes it would make to `~/.claude/settings.json`.
 3. On a clear yes, run it again without `--dry-run`. It writes a backup of
