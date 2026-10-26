@@ -20,7 +20,11 @@
         "name": "ds",
         "label": "Data source",
         "query": "prometheus",
-        "current": {}
+        "regex": "/gcp-v2-.*/",
+        "current": {
+          "text": "gcp-v2-nonprod",
+          "value": "edq6thuke248we"
+        }
       },
       {
         "type": "query",
@@ -76,7 +80,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum(sum by (work_item) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.cost.usage\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1)))",
+          "expr": "sum(sum by (work_item) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.cost.usage\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\"}[90d])) + 1)))",
           "refId": "A",
           "legendFormat": "",
           "range": false,
@@ -120,7 +124,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum(sum by (work_item) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.active_time.total\", type=\"user\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1))) / 3600",
+          "expr": "sum(sum by (work_item) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.active_time.total\", type=\"user\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\"}[90d])) + 1))) / 3600",
           "refId": "A",
           "legendFormat": "",
           "range": false,
@@ -164,7 +168,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum(sum by (work_item) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.active_time.total\", type=\"cli\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1))) / 3600",
+          "expr": "sum(sum by (work_item) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.active_time.total\", type=\"cli\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\"}[90d])) + 1))) / 3600",
           "refId": "A",
           "legendFormat": "",
           "range": false,
@@ -208,7 +212,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum(count by (work_item) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.session.count\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1)))",
+          "expr": "sum(count by (work_item) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.session.count\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\"}[90d])) + 1)))",
           "refId": "A",
           "legendFormat": "",
           "range": false,
@@ -252,7 +256,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum(sum by (work_item) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.lines_of_code.count\", type=\"added\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1)))",
+          "expr": "sum(sum by (work_item) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.lines_of_code.count\", type=\"added\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\"}[90d])) + 1)))",
           "refId": "A",
           "legendFormat": "",
           "range": false,
@@ -289,14 +293,14 @@
     },
     {
       "type": "stat",
-      "title": "Commits / PRs",
+      "title": "Commits",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum(sum by (work_item) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.commit.count\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1)))",
+          "expr": "sum(sum by (work_item) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.commit.count\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\"}[90d])) + 1)))",
           "refId": "A",
           "legendFormat": "",
           "range": false,
@@ -398,7 +402,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum by (work_item, work_title) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.cost.usage\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1))",
+          "expr": "sum by (work_item, work_title) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.cost.usage\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\"}[90d])) + 1))",
           "refId": "A",
           "legendFormat": "",
           "range": false,
@@ -410,7 +414,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum by (work_item, work_title) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.token.usage\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1))",
+          "expr": "sum by (work_item, work_title) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.token.usage\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\"}[90d])) + 1))",
           "refId": "B",
           "legendFormat": "",
           "range": false,
@@ -422,7 +426,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum by (work_item, work_title) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.active_time.total\", type=\"user\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1))",
+          "expr": "sum by (work_item, work_title) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.active_time.total\", type=\"user\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\"}[90d])) + 1)) / 3600",
           "refId": "C",
           "legendFormat": "",
           "range": false,
@@ -434,7 +438,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum by (work_item, work_title) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.active_time.total\", type=\"cli\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1))",
+          "expr": "sum by (work_item, work_title) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.active_time.total\", type=\"cli\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\"}[90d])) + 1)) / 3600",
           "refId": "D",
           "legendFormat": "",
           "range": false,
@@ -446,7 +450,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum by (work_item, work_title) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.lines_of_code.count\", type=\"added\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1))",
+          "expr": "sum by (work_item, work_title) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.lines_of_code.count\", type=\"added\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\"}[90d])) + 1))",
           "refId": "E",
           "legendFormat": "",
           "range": false,
@@ -458,7 +462,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum by (work_item, work_title) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.commit.count\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1))",
+          "expr": "sum by (work_item, work_title) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.commit.count\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\"}[90d])) + 1))",
           "refId": "F",
           "legendFormat": "",
           "range": false,
@@ -470,7 +474,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum by (work_item, work_title) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.pull_request.count\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1))",
+          "expr": "sum by (work_item, work_title) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.pull_request.count\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\"}[90d])) + 1))",
           "refId": "G",
           "legendFormat": "",
           "range": false,
@@ -482,7 +486,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "count by (work_item, work_title) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.session.count\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1))",
+          "expr": "count by (work_item, work_title) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.session.count\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\"}[90d])) + 1))",
           "refId": "H",
           "legendFormat": "",
           "range": false,
@@ -512,41 +516,6 @@
               "Value #H": "Sessions",
               "work_item": "Work item",
               "work_title": "Title"
-            }
-          }
-        },
-        {
-          "id": "calculateField",
-          "options": {
-            "mode": "binary",
-            "alias": "Active h (you) ",
-            "binary": {
-              "left": "Active h (you)",
-              "operator": "/",
-              "right": "3600"
-            },
-            "replaceFields": false
-          }
-        },
-        {
-          "id": "calculateField",
-          "options": {
-            "mode": "binary",
-            "alias": "Active h (Claude) ",
-            "binary": {
-              "left": "Active h (Claude)",
-              "operator": "/",
-              "right": "3600"
-            },
-            "replaceFields": false
-          }
-        },
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Active h (you)": true,
-              "Active h (Claude)": true
             }
           }
         },
@@ -653,7 +622,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum by (work_item) (sum by (\"session.id\") (increase({\"__name__\"=\"claude_code.cost.usage\", job=~\"claude-code|claude-code-desktop\"}[$__interval])) * on(\"session.id\") group_left(work_item) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1))",
+          "expr": "sum by (work_item) (sum by (\"session.id\") (increase({\"__name__\"=\"claude_code.cost.usage\", job=~\"claude-code|claude-code-desktop\"}[$__interval])) * on(\"session.id\") group_left(work_item) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\"}[90d])) + 1))",
           "refId": "A",
           "legendFormat": "{{work_item}}",
           "range": true,
@@ -704,7 +673,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum by (work_item) (sum by (\"session.id\") (increase({\"__name__\"=\"claude_code.active_time.total\", job=~\"claude-code|claude-code-desktop\"}[$__interval])) * on(\"session.id\") group_left(work_item) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1)) / 3600",
+          "expr": "sum by (work_item) (sum by (\"session.id\") (increase({\"__name__\"=\"claude_code.active_time.total\", job=~\"claude-code|claude-code-desktop\"}[$__interval])) * on(\"session.id\") group_left(work_item) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\"}[90d])) + 1)) / 3600",
           "refId": "A",
           "legendFormat": "{{work_item}}",
           "range": true,
@@ -754,7 +723,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum by (model) (sum by (\"session.id\", model) (max_over_time({\"__name__\"=\"claude_code.cost.usage\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1))",
+          "expr": "sum by (model) (sum by (\"session.id\", model) (max_over_time({\"__name__\"=\"claude_code.cost.usage\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\"}[90d])) + 1))",
           "refId": "A",
           "legendFormat": "{{model}}",
           "range": false,
@@ -803,7 +772,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum by (query_source) (sum by (\"session.id\", query_source) (max_over_time({\"__name__\"=\"claude_code.cost.usage\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1))",
+          "expr": "sum by (query_source) (sum by (\"session.id\", query_source) (max_over_time({\"__name__\"=\"claude_code.cost.usage\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\"}[90d])) + 1))",
           "refId": "A",
           "legendFormat": "{{query_source}}",
           "range": false,
@@ -852,7 +821,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum(sum by (work_item) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.token.usage\", type=\"cacheRead\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1))) / sum(sum by (work_item) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.token.usage\", type=~\"input|cacheRead|cacheCreation\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1)))",
+          "expr": "sum(sum by (work_item) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.token.usage\", type=\"cacheRead\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\"}[90d])) + 1))) / sum(sum by (work_item) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.token.usage\", type=~\"input|cacheRead|cacheCreation\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\"}[90d])) + 1)))",
           "refId": "A",
           "legendFormat": "",
           "range": false,

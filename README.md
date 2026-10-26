@@ -192,10 +192,10 @@ item (cost, tokens, active time, lines, commits/PRs, sessions), daily trends,
 model and subagent mix, cache share, and unassigned cost. Generate it with
 `dashboards/gen_dashboard.py`.
 
-- **Data source:** a Prometheus-type data source pointed at the project's Google
-  Managed Prometheus endpoint
-  (`https://monitoring.googleapis.com/v1/projects/<id>/location/global/prometheus`)
-  with a `roles/monitoring.viewer` identity.
+- **Data source:** a Prometheus-type data source whose Google Managed Prometheus
+  metrics scope includes the telemetry project. On yardstick that's
+  `gcp-v2-nonprod`, which already covers `moz-fx-cloudeng-agents-nonprod`.
+- **Published:** yardstick, folder `wstuckey`, uid `claude-usage-work-item`.
 - **Labels:** in Prometheus, OTel's `service.name` shows up as `job`, and metric
   and label names keep their dots, so queries use the quoted form
   (`{"__name__"="claude_code.cost.usage"}`, `"session.id"`).

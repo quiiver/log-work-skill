@@ -7,7 +7,7 @@ every PromQL expression against the data source (delete it afterwards).
 import json, os, sys
 DS = {"type": "prometheus", "uid": "${ds}"}
 INFO = ('(0 * topk by ("session.id") (1, last_over_time({"__name__"="log_work.session.info", '
-        'work_item=~"$work_item"}[90d])) + 1)')
+        'work_item=~"${work_item:regex}"}[90d])) + 1)')
 def M(name, extra=""):
     sel = f'"__name__"="claude_code.{name}"' + (f", {extra}" if extra else "")
     return "{" + sel + ', job=~"claude-code|claude-code-desktop"}'
@@ -59,7 +59,7 @@ for title, expr, unit, dec in [
     ("Active hours (Claude)", f"sum({joined(per_session('active_time.total', CLI))}) / 3600", "none", 1),
     ("Sessions", f"sum(count by (work_item) ({per_session('session.count')} * on(\"session.id\") group_left(work_item) {INFO}))", "none", 0),
     ("Lines added", f"sum({joined(per_session('lines_of_code.count', ADDED))})", "none", 0),
-    ("Commits / PRs", f"sum({joined(per_session('commit.count'))})", "none", 0),
+    ("Commits", f"sum({joined(per_session('commit.count'))})", "none", 0),
 ]:
     add(stat(title, expr, unit, dec), 4, 4)
 add({"type": "stat", "title": "Unassigned cost (no work item)", "targets": [tgt(
@@ -71,21 +71,18 @@ add({"type": "stat", "title": "Unassigned cost (no work item)", "targets": [tgt(
 row("By work item")
 cols = [("A", "Cost", per_session("cost.usage")),
         ("B", "Tokens", per_session("token.usage")),
-        ("C", "Active h (you)", per_session("active_time.total", 'type="user"')),
-        ("D", "Active h (Claude)", per_session("active_time.total", 'type="cli"')),
+        ("C", "Active h (you)", per_session("active_time.total", 'type="user"'), " / 3600"),
+        ("D", "Active h (Claude)", per_session("active_time.total", 'type="cli"'), " / 3600"),
         ("E", "Lines added", per_session("lines_of_code.count", 'type="added"')),
         ("F", "Commits", per_session("commit.count")),
         ("G", "PRs", per_session("pull_request.count"))]
-targets = [tgt(joined(e, by="work_item, work_title"), r, fmt="table") for r, _, e in cols]
+targets = [tgt(joined(c[2], by="work_item, work_title") + (c[3] if len(c) > 3 else ""), c[0], fmt="table") for c in cols]
 targets.append(tgt(f'count by (work_item, work_title) ({per_session("session.count")} * on("session.id") group_left(work_item, work_title) {INFO})', "H", fmt="table"))
-rename = {f"Value #{r}": n for r, n, _ in cols}; rename["Value #H"] = "Sessions"
+rename = {f"Value #{c[0]}": c[1] for c in cols}; rename["Value #H"] = "Sessions"
 rename.update({"work_item": "Work item", "work_title": "Title"})
 add({"type": "table", "title": "Usage by work item", "targets": targets,
      "transformations": [{"id": "merge", "options": {}},
                          {"id": "organize", "options": {"excludeByName": {"Time": True}, "renameByName": rename}},
-                         {"id": "calculateField", "options": {"mode": "binary", "alias": "Active h (you) ", "binary": {"left": "Active h (you)", "operator": "/", "right": "3600"}, "replaceFields": False}},
-                         {"id": "calculateField", "options": {"mode": "binary", "alias": "Active h (Claude) ", "binary": {"left": "Active h (Claude)", "operator": "/", "right": "3600"}, "replaceFields": False}},
-                         {"id": "organize", "options": {"excludeByName": {"Active h (you)": True, "Active h (Claude)": True}}},
                          {"id": "sortBy", "options": {"sort": [{"field": "Cost", "desc": True}]}}],
      "fieldConfig": {"defaults": {"decimals": 1}, "overrides": [
          {"matcher": {"id": "byName", "options": "Cost"}, "properties": [{"id": "unit", "value": "currencyUSD"}, {"id": "decimals", "value": 2}]},
@@ -123,7 +120,8 @@ dash = {
     "time": {"from": "now-30d", "to": "now"},
     "description": "Claude Code OTel usage joined to log-work work items on session.id (log_work.session.info). Cost is a list-price estimate.",
     "templating": {"list": [
-        {"type": "datasource", "name": "ds", "label": "Data source", "query": "prometheus", "current": {}},
+        {"type": "datasource", "name": "ds", "label": "Data source", "query": "prometheus", "regex": "/gcp-v2-.*/",
+         "current": {"text": "gcp-v2-nonprod", "value": "edq6thuke248we"}},
         {"type": "query", "name": "work_item", "label": "Work item", "datasource": DS,
          "query": {"query": 'label_values({"__name__"="log_work.session.info"}, work_item)', "refId": "wi"},
          "definition": 'label_values({"__name__"="log_work.session.info"}, work_item)',
