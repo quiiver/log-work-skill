@@ -12,7 +12,7 @@
     "from": "now-30d",
     "to": "now"
   },
-  "description": "Claude usage joined to log-work work items on session.id (log_work.session.info). Cost, tokens, lines and Claude time come from the log-work transcript hook (log_work.usage.*, all session types; updates when a session's process stops). Your active time and commits come from Claude Code's native OTel export (terminal sessions only). Cost is Claude Code's own list-price estimate.",
+  "description": "Claude usage joined to log-work work items on session.id (log_work.session.info). Cost, tokens, lines and Claude time come from the log-work transcript hook (log_work.usage.*, all session types; updates when a session's process stops). Commits and PRs are successful git commit / gh pr create tool calls (including subagents). Your active time comes from Claude Code's native OTel export (terminal sessions only). Cost is Claude Code's own list-price estimate.",
   "templating": {
     "list": [
       {
@@ -293,14 +293,14 @@
     },
     {
       "type": "stat",
-      "title": "Commits (CLI only)",
+      "title": "Commits",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum(sum by (work_item) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.commit.count\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1)))",
+          "expr": "sum(sum by (work_item) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"log_work.usage.commits\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1)))",
           "refId": "A",
           "legendFormat": "",
           "range": false,
@@ -462,7 +462,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum by (work_item, work_title) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.commit.count\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1))",
+          "expr": "sum by (work_item, work_title) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"log_work.usage.commits\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1))",
           "refId": "F",
           "legendFormat": "",
           "range": false,
@@ -474,7 +474,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum by (work_item, work_title) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.pull_request.count\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1))",
+          "expr": "sum by (work_item, work_title) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"log_work.usage.prs\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1))",
           "refId": "G",
           "legendFormat": "",
           "range": false,

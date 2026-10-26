@@ -484,12 +484,21 @@ returns in under 0.1 s and does the work in a detached
   - `log_work.usage.api_seconds`
   - `log_work.usage.tool_seconds`
   - `log_work.usage.lines{type}`
+  - `log_work.usage.commits`, `log_work.usage.prs`: successful `git commit` and
+    `gh pr create` (or `*create_pull_request` MCP) tool calls. These are
+    counted from the session transcript and its `subagents/*.jsonl`
+    transcripts, because subagents make most commits. A call counts only once
+    its `tool_result` arrives and isn't an error. Heredoc bodies are ignored,
+    and the command must start a shell segment, so code that merely mentions
+    `git commit` doesn't count. This is an approximation: a commit whose exit
+    code a pipe hides (e.g. "nothing to commit" piped through `grep`) still
+    counts.
 - **When it runs:** it skips untracked directories and runs only when
   `otelEndpoint` is configured.
 - **Reporting:** the dashboard and reports use these metrics for cost,
   tokens, lines and Claude time. Claude Code's native metrics are used only
-  for things transcripts lack: your active time and commits/PRs, which come
-  from terminal sessions only.
+  for what transcripts lack: your active time, which comes from terminal
+  sessions only.
 - **Format risk:** `cost-state` is not a documented format. If the totals
   stop moving, check that the lines still exist with these field names.
 

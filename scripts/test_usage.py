@@ -52,6 +52,33 @@ class TestUsage(unittest.TestCase):
         self.assertEqual(len(metrics["log_work.usage.tokens"]["sum"]["dataPoints"]), 5)
         self.assertEqual(metrics["log_work.usage.api_seconds"]["sum"]["dataPoints"][0]["asDouble"], 2.0)
 
+    def test_counts_successful_commits_and_prs_only(self):
+        def call(i, cmd, name="Bash"):
+            return {"type": "assistant", "message": {"content": [
+                {"type": "tool_use", "id": i, "name": name, "input": {"command": cmd}}]}}
+        def result(i, err=False):
+            return {"type": "user", "message": {"content": [
+                {"type": "tool_result", "tool_use_id": i, "is_error": err, "content": "x"}]}}
+        lines = [call("a", "git add . && git commit -m 'x'"), result("a"),
+                 call("b", "git -C /repo commit -q -m y"), result("b", err=True),   # failed
+                 call("c", "gh pr create --fill"), result("c"),
+                 call("d", "", name="mcp__github__create_pull_request"), result("d"),
+                 call("e", "git log --oneline"), result("e"),                     # not a commit
+                 call("g", "python3 - <<'EOF'\nx = \"git commit -m 'x'\" && 'gh pr create'\nEOF"), result("g"),  # heredoc text
+                 call("h", "echo 'run git commit later'"), result("h"),             # mentioned, not run
+                 call("f", "git commit -m pending")]                              # no result yet
+        with tempfile.TemporaryDirectory() as d:
+            t = os.path.join(d, "t.jsonl")
+            open(t, "w").write("".join(json.dumps(x) + "\n" for x in lines))
+            pending, counts = {}, {}
+            _, off = usage.scan(t, 0, pending, counts)
+            self.assertEqual(counts, {"commits": 1, "prs": 2})
+            self.assertEqual(set(pending), {"f"})
+            open(t, "a").write(json.dumps(result("f")) + "\n")  # result lands in a later scan
+            usage.scan(t, off, pending, counts)
+            self.assertEqual(counts["commits"], 2)
+            self.assertEqual(pending, {})
+
     def test_emit_skips_without_endpoint(self):
         with tempfile.TemporaryDirectory() as d:
             t = os.path.join(d, "t.jsonl")

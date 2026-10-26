@@ -16,7 +16,8 @@ INFO = ('(0 * topk by ("session.id") (1, '
 # preferred over Claude Code's native export, which desktop sessions don't send.
 HOOK = {"cost.usage": "log_work.usage.cost_usd", "token.usage": "log_work.usage.tokens",
         "lines_of_code.count": "log_work.usage.lines", "api_seconds": "log_work.usage.api_seconds",
-        "tool_seconds": "log_work.usage.tool_seconds"}
+        "tool_seconds": "log_work.usage.tool_seconds", "commit.count": "log_work.usage.commits",
+        "pull_request.count": "log_work.usage.prs"}
 def M(name, extra=""):
     if name in HOOK:
         return "{" + f'"__name__"="{HOOK[name]}"' + (f", {extra}" if extra else "") + "}"
@@ -70,7 +71,7 @@ for title, expr, unit, dec in [
     ("Claude hours (model + tools)", f"(sum({joined(per_session('api_seconds'))}) + sum({joined(per_session('tool_seconds'))})) / 3600", "none", 1),
     ("Sessions", f"sum(count by (work_item) ({per_session('cost.usage')} * on(\"session.id\") group_left(work_item) {INFO}))", "none", 0),
     ("Lines added", f"sum({joined(per_session('lines_of_code.count', ADDED))})", "none", 0),
-    ("Commits (CLI only)", f"sum({joined(per_session('commit.count'))})", "none", 0),
+    ("Commits", f"sum({joined(per_session('commit.count'))})", "none", 0),
 ]:
     add(stat(title, expr, unit, dec), 4, 4)
 add({"type": "stat", "title": "Unassigned cost (no work item)", "targets": [tgt(
@@ -130,7 +131,7 @@ dash = {
     "tags": ["claude-code", "log-work"],
     "timezone": "browser", "schemaVersion": 39, "editable": True,
     "time": {"from": "now-30d", "to": "now"},
-    "description": "Claude usage joined to log-work work items on session.id (log_work.session.info). Cost, tokens, lines and Claude time come from the log-work transcript hook (log_work.usage.*, all session types; updates when a session's process stops). Your active time and commits come from Claude Code's native OTel export (terminal sessions only). Cost is Claude Code's own list-price estimate.",
+    "description": "Claude usage joined to log-work work items on session.id (log_work.session.info). Cost, tokens, lines and Claude time come from the log-work transcript hook (log_work.usage.*, all session types; updates when a session's process stops). Commits and PRs are successful git commit / gh pr create tool calls (including subagents). Your active time comes from Claude Code's native OTel export (terminal sessions only). Cost is Claude Code's own list-price estimate.",
     "templating": {"list": [
         {"type": "datasource", "name": "ds", "label": "Data source", "query": "prometheus", "regex": "/gcp-v2-.*/",
          "current": {"text": "gcp-v2-nonprod", "value": "edq6thuke248we"}},
