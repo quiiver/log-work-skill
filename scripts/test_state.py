@@ -191,6 +191,16 @@ class TestCLI(unittest.TestCase):
             self.assertEqual({r["session_id"] for r in rows}, {"s-42"})
             self.assertEqual(rows[1]["ticketKey"], "WORKLOG")
 
+    def test_already_tagged(self):
+        with tempfile.TemporaryDirectory() as d:
+            state_path = os.path.join(d, "state.json")
+            self.assertFalse(state.already_tagged(state_path, "s-1", "WORKLOG"))
+            state.append_ledger(state_path, {"event": "session-start", "session_id": "s-1",
+                                             "ticketKey": "WORKLOG"})
+            self.assertTrue(state.already_tagged(state_path, "s-1", "WORKLOG"))
+            self.assertFalse(state.already_tagged(state_path, "s-1", "MZCLD-1"))  # rematch re-tags
+            self.assertFalse(state.already_tagged(state_path, "s-2", "WORKLOG"))
+
     def test_info_payload_shape(self):
         cfg = {"otelGcpProject": "p", "otelInstance": "h", "otelRegion": "us-east1"}
         p = state.info_payload(cfg, "s-1", "MZCLD-1", "x" * 200, "repo", now_ns=5_000_000_000)

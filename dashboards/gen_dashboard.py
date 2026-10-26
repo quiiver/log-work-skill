@@ -6,8 +6,12 @@ every PromQL expression against the data source (delete it afterwards).
 """
 import json, os, sys
 DS = {"type": "prometheus", "uid": "${ds}"}
-INFO = ('(0 * topk by ("session.id") (1, last_over_time({"__name__"="log_work.session.info", '
-        'work_item=~"${work_item:regex}"}[90d])) + 1)')
+# Latest work-item tag per session. Unticketed (WORKLOG) sessions show as
+# "WORKLOG: <work log entry title>" so each entry is its own row.
+_SEL = '{"__name__"="log_work.session.info", work_item=~"${work_item:regex}", work_item%s"WORKLOG"}'
+INFO = ('(0 * topk by ("session.id") (1, '
+        f'label_replace(last_over_time({_SEL % "="}[90d]), "work_item", "WORKLOG: $1", "work_title", "(.+)")'
+        f' or last_over_time({_SEL % "!="}[90d])) + 1)')
 # Usage the log-work hook derives from transcripts (all session types, incl. desktop),
 # preferred over Claude Code's native export, which desktop sessions don't send.
 HOOK = {"cost.usage": "log_work.usage.cost_usd", "token.usage": "log_work.usage.tokens",

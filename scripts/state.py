@@ -146,6 +146,23 @@ def emit_info_async(state_path, session_id, work_item, title="", repo=""):
     )
 
 
+def already_tagged(state_path, session_id, ticket_key):
+    """True if the ledger already records this session under this ticket."""
+    path = ledger_path(state_path)
+    if not os.path.exists(path):
+        return False
+    with open(path) as f:
+        for line in f:
+            if session_id in line:
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue
+                if row.get("session_id") == session_id and row.get("ticketKey") == ticket_key:
+                    return True
+    return False
+
+
 def clear_ticket(state, cwd):
     entry = get_entry(state, cwd)
     entry["ticketKey"] = None
@@ -361,11 +378,15 @@ def cmd_session_start(args):
     ]
     session_id = payload.get("session_id")
     if session_id and entry["tracked"]:
+        # Re-tagging a resumed session would replace the work log entry title
+        # sent at log time with the bare ticket key (newest tag wins).
+        tagged = already_tagged(args.state_path, session_id, entry["ticketKey"])
         append_ledger(args.state_path, {"event": "session-start", "session_id": session_id,
                                         "cwd": cwd, "source": payload.get("source"),
                                         "ticketKey": entry["ticketKey"], "branch": branch})
-        emit_info_async(args.state_path, session_id, entry["ticketKey"] or "unassigned",
-                        repo=os.path.basename(cwd.rstrip("/")))
+        if not tagged:
+            emit_info_async(args.state_path, session_id, entry["ticketKey"] or "unassigned",
+                            repo=os.path.basename(cwd.rstrip("/")))
 
     lines = [
         f"log-work skill — SessionStart for {cwd}",
