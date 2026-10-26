@@ -30,6 +30,15 @@ class TestOtelSetup(unittest.TestCase):
         with self.assertRaises(ValueError):
             otel_setup.apply({}, {"otelEndpoint": "x", "otelProtocol": "grpc", "otelAuth": "gcloud"})
 
+    def test_traces_toggle(self):
+        cfg = {"otelEndpoint": "https://a"}
+        on = otel_setup.apply({}, {**cfg, "otelTraces": "true"}, helper="/h")
+        self.assertEqual(on["env"]["OTEL_TRACES_EXPORTER"], "otlp")
+        self.assertEqual(on["env"]["CLAUDE_CODE_ENHANCED_TELEMETRY_BETA"], "1")
+        off = otel_setup.apply(on, cfg, helper="/h")
+        self.assertNotIn("OTEL_TRACES_EXPORTER", off["env"])
+        self.assertNotIn("CLAUDE_CODE_ENHANCED_TELEMETRY_BETA", off["env"])
+
     def test_reapply_and_disable_round_trip(self):
         settings = {"env": {"FOO": "1", "OTEL_RESOURCE_ATTRIBUTES": "team=ce"}}
         cfg = {"otelEndpoint": "https://a", "otelGcpProject": "p1", "otelInstance": "h"}

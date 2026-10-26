@@ -9,6 +9,7 @@ Config keys (set with `state.py config <key> <value>`):
   otelAuth        gcloud (default when otelGcpProject is set) or none
   otelRegion      GCP region for metric series (default us-central1; GCP only)
   otelInstance    instance label for metric series (default: short hostname; GCP only)
+  otelTraces      true to also export traces (beta: CLAUDE_CODE_ENHANCED_TELEMETRY_BETA)
 
 Google's Telemetry API stores metrics as Prometheus series, which need an instance
 and a real region (not "global"); Claude Code sends neither, so they are added as
@@ -35,6 +36,8 @@ MANAGED_ENV = [
     "OTEL_EXPORTER_OTLP_ENDPOINT",
     "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE",
     "OTEL_METRICS_INCLUDE_VERSION",
+    "OTEL_TRACES_EXPORTER",
+    "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA",
 ]
 GCP_ATTRS = ["gcp.project_id", "cloud.region", "service.instance.id"]
 
@@ -74,6 +77,12 @@ def apply(settings, config, helper=HELPER):
         "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE": "cumulative",
         "OTEL_METRICS_INCLUDE_VERSION": "true",
     })
+    if str(config.get("otelTraces", "")).lower() in ("1", "true", "yes"):
+        # Tracing is beta; spans redact prompt and tool content by default.
+        env.update({"OTEL_TRACES_EXPORTER": "otlp", "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1"})
+    else:
+        env.pop("OTEL_TRACES_EXPORTER", None)
+        env.pop("CLAUDE_CODE_ENHANCED_TELEMETRY_BETA", None)
     gcp = {
         "gcp.project_id": project,
         "cloud.region": config.get("otelRegion", "us-central1") if project else None,

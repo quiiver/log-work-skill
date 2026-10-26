@@ -437,6 +437,18 @@ to the work log.
    nothing arrives, run `claude --debug-file <path>` and look for
    `[3P telemetry]` errors. Also check once that the ledger's `session_id`
    matches the `session.id` on an exported event.
+   - **Traces (optional):** `state.py config otelTraces true`, then re-run.
+     This sets `OTEL_TRACES_EXPORTER=otlp` and
+     `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA=1`; spans upload every ~5 s. Each
+     prompt is a `claude_code.interaction` span with `llm_request`, `tool`,
+     `tool.blocked_on_user`, `tool.execution` and `hook` children, all
+     carrying `session.id`; content is redacted by default.
+     - In Google these show in Trace Explorer, and fetching by trace ID
+       (`cloudtrace.googleapis.com/v1/projects/<id>/traces/<traceId>`)
+       works. The v1 *list* endpoint doesn't return OTLP-ingested traces,
+       so don't use it to check.
+     - The beta tracing may need organization allowlisting for interactive
+       sessions; headless `claude -p` runs export either way.
 5. To move to another collector or project, change the config and re-run
    step 2. To turn telemetry off, run `otel_setup.py --disable`.
 - Never enable `OTEL_LOG_USER_PROMPTS`, `OTEL_LOG_TOOL_DETAILS`,
