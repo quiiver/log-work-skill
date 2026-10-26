@@ -95,7 +95,21 @@ def info_payload(config, session_id, work_item, title="", repo="", now_ns=None):
     which Google's Telemetry API needs (instance + non-global region).
     """
     now_ns = now_ns or time.time_ns()
-    attr = lambda k, v: {"key": k, "value": {"stringValue": str(v)[:120]}}
+    point = {
+        "asInt": str(now_ns // 1_000_000_000),
+        "timeUnixNano": str(now_ns),
+        "attributes": [attr("session.id", session_id), attr("work_item", work_item),
+                       attr("work_title", title or work_item), attr("repo", repo or "-")],
+    }
+    return otlp_metrics(config, [{"name": "log_work.session.info", "gauge": {"dataPoints": [point]}}])
+
+
+def attr(key, value):
+    return {"key": key, "value": {"stringValue": str(value)[:120]}}
+
+
+def otlp_metrics(config, metrics):
+    """Wrap OTLP metrics with the resource attributes Google's Telemetry API needs."""
     resource = [
         attr("service.name", "log-work"),
         attr("service.instance.id", config.get("otelInstance", socket.gethostname().split(".")[0])),
@@ -103,15 +117,8 @@ def info_payload(config, session_id, work_item, title="", repo="", now_ns=None):
     ]
     if config.get("otelGcpProject"):
         resource.append(attr("gcp.project_id", config["otelGcpProject"]))
-    point = {
-        "asInt": str(now_ns // 1_000_000_000),
-        "timeUnixNano": str(now_ns),
-        "attributes": [attr("session.id", session_id), attr("work_item", work_item),
-                       attr("work_title", title or work_item), attr("repo", repo or "-")],
-    }
     return {"resourceMetrics": [{"resource": {"attributes": resource}, "scopeMetrics": [
-        {"scope": {"name": "log-work"},
-         "metrics": [{"name": "log_work.session.info", "gauge": {"dataPoints": [point]}}]}]}]}
+        {"scope": {"name": "log-work"}, "metrics": metrics}]}]}
 
 
 def send_info(config, payload):

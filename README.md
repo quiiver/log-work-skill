@@ -89,6 +89,12 @@ All of these read `~/.claude/skills/` and `~/.claude/settings.json`. Add:
   install bring both the skill and the hook. It needs the repo layout to
   change, so it's left for later.
 
+**Usage hook (recommended, works in the desktop app):** also register
+`python3 ~/.claude/skills/log-work/scripts/usage.py hook` under both
+`SessionStart` and `Stop` in `~/.claude/settings.json`, with a 10 second
+timeout. It sends Claude Code's own per-session cost and token totals, read
+from the session transcript, as `log_work.usage.*`. See SKILL.md → Usage hook.
+
 ### Other harnesses
 
 Most other agent CLIs discover skills in `~/.agents/skills`, so link it once:
@@ -206,5 +212,5 @@ model and subagent mix, cache share, and unassigned cost. Generate it with
 ## Tests
 
 ```bash
-cd ~/.claude/skills/log-work/scripts && python3 -m unittest test_state test_otel_setup
+cd ~/.claude/skills/log-work/scripts && python3 -m unittest test_state test_otel_setup test_usage
 ```

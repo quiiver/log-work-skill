@@ -8,7 +8,14 @@ import json, os, sys
 DS = {"type": "prometheus", "uid": "${ds}"}
 INFO = ('(0 * topk by ("session.id") (1, last_over_time({"__name__"="log_work.session.info", '
         'work_item=~"${work_item:regex}"}[90d])) + 1)')
+# Usage the log-work hook derives from transcripts (all session types, incl. desktop),
+# preferred over Claude Code's native export, which desktop sessions don't send.
+HOOK = {"cost.usage": "log_work.usage.cost_usd", "token.usage": "log_work.usage.tokens",
+        "lines_of_code.count": "log_work.usage.lines", "api_seconds": "log_work.usage.api_seconds",
+        "tool_seconds": "log_work.usage.tool_seconds"}
 def M(name, extra=""):
+    if name in HOOK:
+        return "{" + f'"__name__"="{HOOK[name]}"' + (f", {extra}" if extra else "") + "}"
     sel = f'"__name__"="claude_code.{name}"' + (f", {extra}" if extra else "")
     return "{" + sel + ', job=~"claude-code|claude-code-desktop"}'
 def per_session(name, extra="", by=""):
@@ -55,11 +62,11 @@ def stat(title, expr, unit="none", decimals=None):
 row("Overview")
 for title, expr, unit, dec in [
     ("Cost (est.)", f"sum({joined(per_session('cost.usage'))})", "currencyUSD", 2),
-    ("Active hours (you)", f"sum({joined(per_session('active_time.total', USER))}) / 3600", "none", 1),
-    ("Active hours (Claude)", f"sum({joined(per_session('active_time.total', CLI))}) / 3600", "none", 1),
-    ("Sessions", f"sum(count by (work_item) ({per_session('session.count')} * on(\"session.id\") group_left(work_item) {INFO}))", "none", 0),
+    ("Active hours (you, CLI only)", f"sum({joined(per_session('active_time.total', USER))}) / 3600", "none", 1),
+    ("Claude hours (model + tools)", f"(sum({joined(per_session('api_seconds'))}) + sum({joined(per_session('tool_seconds'))})) / 3600", "none", 1),
+    ("Sessions", f"sum(count by (work_item) ({per_session('cost.usage')} * on(\"session.id\") group_left(work_item) {INFO}))", "none", 0),
     ("Lines added", f"sum({joined(per_session('lines_of_code.count', ADDED))})", "none", 0),
-    ("Commits", f"sum({joined(per_session('commit.count'))})", "none", 0),
+    ("Commits (CLI only)", f"sum({joined(per_session('commit.count'))})", "none", 0),
 ]:
     add(stat(title, expr, unit, dec), 4, 4)
 add({"type": "stat", "title": "Unassigned cost (no work item)", "targets": [tgt(
@@ -72,12 +79,12 @@ row("By work item")
 cols = [("A", "Cost", per_session("cost.usage")),
         ("B", "Tokens", per_session("token.usage")),
         ("C", "Active h (you)", per_session("active_time.total", 'type="user"'), " / 3600"),
-        ("D", "Active h (Claude)", per_session("active_time.total", 'type="cli"'), " / 3600"),
+        ("D", "Claude h (model)", per_session("api_seconds"), " / 3600"),
         ("E", "Lines added", per_session("lines_of_code.count", 'type="added"')),
         ("F", "Commits", per_session("commit.count")),
         ("G", "PRs", per_session("pull_request.count"))]
 targets = [tgt(joined(c[2], by="work_item, work_title") + (c[3] if len(c) > 3 else ""), c[0], fmt="table") for c in cols]
-targets.append(tgt(f'count by (work_item, work_title) ({per_session("session.count")} * on("session.id") group_left(work_item, work_title) {INFO})', "H", fmt="table"))
+targets.append(tgt(f'count by (work_item, work_title) ({per_session("cost.usage")} * on("session.id") group_left(work_item, work_title) {INFO})', "H", fmt="table"))
 rename = {f"Value #{c[0]}": c[1] for c in cols}; rename["Value #H"] = "Sessions"
 rename.update({"work_item": "Work item", "work_title": "Title"})
 add({"type": "table", "title": "Usage by work item", "targets": targets,
@@ -99,14 +106,15 @@ def ts(title, expr, legend, unit="none", stack=True, interval="1d"):
                             "stacking": {"mode": "normal" if stack else "none"}}}, "overrides": []},
             "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum"]}}}
 add(ts("Cost per day by work item", rate_joined("cost.usage"), "{{work_item}}", "currencyUSD"), 12, 8)
-add(ts("Active hours per day by work item", f"{rate_joined('active_time.total')} / 3600", "{{work_item}}"), 12, 8)
+add(ts("Claude hours per day by work item", f"({rate_joined('api_seconds')} + {rate_joined('tool_seconds')}) / 3600", "{{work_item}}"), 12, 8)
 add({"type": "piechart", "title": "Cost by model", "targets": [tgt(
     joined(per_session("cost.usage", by="model"), by="model", labels="work_item"), "A", "{{model}}")],
     "fieldConfig": {"defaults": {"unit": "currencyUSD"}, "overrides": []},
     "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "legend": {"displayMode": "table", "placement": "right", "values": ["value", "percent"]}}}, 8, 8)
-add({"type": "piechart", "title": "Cost: main vs subagent", "targets": [tgt(
-    joined(per_session("cost.usage", by="query_source"), by="query_source", labels="work_item"), "A", "{{query_source}}")],
-    "fieldConfig": {"defaults": {"unit": "currencyUSD"}, "overrides": []},
+add({"type": "piechart", "title": "Claude time: model vs tools", "targets": [
+    tgt(f"sum({joined(per_session('api_seconds'))}) / 3600", "A", "model"),
+    tgt(f"sum({joined(per_session('tool_seconds'))}) / 3600", "B", "tools")],
+    "fieldConfig": {"defaults": {"unit": "h"}, "overrides": []},
     "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "legend": {"displayMode": "table", "placement": "right", "values": ["value", "percent"]}}}, 8, 8)
 add(stat("Cache-read share of input tokens",
     f'sum({joined(per_session("token.usage", CACHE))}) / sum({joined(per_session("token.usage", INPUTS))})',
@@ -118,7 +126,7 @@ dash = {
     "tags": ["claude-code", "log-work"],
     "timezone": "browser", "schemaVersion": 39, "editable": True,
     "time": {"from": "now-30d", "to": "now"},
-    "description": "Claude Code OTel usage joined to log-work work items on session.id (log_work.session.info). Cost is a list-price estimate.",
+    "description": "Claude usage joined to log-work work items on session.id (log_work.session.info). Cost, tokens, lines and Claude time come from the log-work transcript hook (log_work.usage.*, all session types; updates when a session's process stops). Your active time and commits come from Claude Code's native OTel export (terminal sessions only). Cost is Claude Code's own list-price estimate.",
     "templating": {"list": [
         {"type": "datasource", "name": "ds", "label": "Data source", "query": "prometheus", "regex": "/gcp-v2-.*/",
          "current": {"text": "gcp-v2-nonprod", "value": "edq6thuke248we"}},

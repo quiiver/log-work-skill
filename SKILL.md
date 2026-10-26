@@ -458,6 +458,41 @@ to the work log.
   managed settings override user ones. If managed settings already
   configure telemetry, report that and stop.
 
+## Usage hook (`scripts/usage.py`)
+
+Measures Claude usage wherever hooks run, including the desktop app, where
+Claude Code's native OTel export sends nothing. Registered for `SessionStart`
+and `Stop` as `python3 ~/.claude/skills/log-work/scripts/usage.py hook`. It
+returns in under 0.1 s and does the work in a detached
+`usage.py emit --session <id> --transcript <path>`.
+
+- **Source:** `cost-state` lines in the session transcript. These are Claude
+  Code's own totals: `totalCostUSD`, per-model `modelUsage` (tokens and
+  `costUSD`), API and tool durations, and lines added and removed. They are
+  cumulative per run (`startTime`, which survives resumes) and written when a
+  session's process stops. So values lag until then, but totals are exact. No
+  price table is involved.
+- **Incremental:** per-session byte offsets and the latest values per run are
+  kept in `log-work-usage.json` next to the state file, under a lock, because
+  Stop hooks can overlap. Only new transcript bytes are scanned; transcripts
+  reach 18 MB or more.
+- **Output:** cumulative OTLP sums, keyed on `session.id` and `run`, sent to
+  the configured endpoint. Each send includes every known run, since points
+  must be less than 25h old and resending cumulative totals is harmless:
+  - `log_work.usage.cost_usd{model}`
+  - `log_work.usage.tokens{model,type}`
+  - `log_work.usage.api_seconds`
+  - `log_work.usage.tool_seconds`
+  - `log_work.usage.lines{type}`
+- **When it runs:** it skips untracked directories and runs only when
+  `otelEndpoint` is configured.
+- **Reporting:** the dashboard and reports use these metrics for cost,
+  tokens, lines and Claude time. Claude Code's native metrics are used only
+  for things transcripts lack: your active time and commits/PRs, which come
+  from terminal sessions only.
+- **Format risk:** `cost-state` is not a documented format. If the totals
+  stop moving, check that the lines still exist with these field names.
+
 ## Opt-out
 
 If the user says something like "don't log this to Jira" / "don't track

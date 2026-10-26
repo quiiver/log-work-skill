@@ -37,13 +37,14 @@ Design: [DESIGN.md](DESIGN.md).
 | 9 | 2026-10-06 | Made the skill generic: added a `state.py config` store (the `__config__` key) and lazy resolution of every ID; SessionStart prints the config; removed the hardcoded IDs, MZCLD and the GitHub login from SKILL.md | `scripts/state.py`, `scripts/test_state.py`, `SKILL.md` |
 | 10 | 2026-10-06 | Install for other harnesses: `session-start --format` for Gemini/Cursor/Copilot JSON output; falls back to the process cwd when stdin has no `cwd`; README covers Claude Code surfaces, Codex, Gemini, Cursor, Copilot and opencode | `scripts/state.py`, `README.md` |
 | 11 | 2026-10-26 | Claude usage telemetry: session ledger (`log-work-sessions.jsonl`, `set-ticket --session`, session id in the SessionStart context); `otel_setup.py` writes the OTLP env from config, targeting the Google Cloud Monitoring collector; `otel_headers.py` issues gcloud bearer tokens; `/log-work setup-otel` procedure | `scripts/state.py`, `scripts/otel_setup.py`, `scripts/otel_headers.py`, tests, `SKILL.md` |
+| 12 | 2026-10-26 | Usage hook: `usage.py` reads transcript `cost-state` lines incrementally on SessionStart/Stop and sends `log_work.usage.*` counters, because desktop sessions don't export native OTel; dashboard moved to these metrics (published to yardstick `wstuckey`) | `scripts/usage.py`, `scripts/test_usage.py`, `scripts/state.py`, `dashboards/`, `SKILL.md`, `~/.claude/settings.json` |
 
 `WORKLOG` is stored as an ordinary `ticketKey` string, and `extract-keys`
 never matches it.
 
 ## Verification
 
-Unit tests: `cd scripts && python3 -m unittest test_state`. 24 tests, all
+Unit tests: `cd scripts && python3 -m unittest test_state`. 30 tests, all
 passing as of 2026-10-06.
 
 Manual scenarios (numbers match DESIGN.md → Testing). Only results seen
