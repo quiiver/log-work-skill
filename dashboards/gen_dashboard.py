@@ -25,7 +25,9 @@ def M(name, extra=""):
     return "{" + sel + ', job=~"claude-code|claude-code-desktop"}'
 def per_session(name, extra="", by=""):
     b = '"session.id"' + (f", {by}" if by else "")
-    return f"sum by ({b}) (max_over_time({M(name, extra)}[$__range]))"
+    # latest value, not max: totals are cumulative per session, and a corrected
+    # (lower) resend must replace the earlier one
+    return f"sum by ({b}) (last_over_time({M(name, extra)}[$__range]))"
 def joined(inner, by="work_item", labels="work_item, work_title"):
     return f"sum by ({by}) ({inner} * on(\"session.id\") group_left({labels}) {INFO})"
 def rate_joined(name, extra="", by="work_item", inner_by=""):
