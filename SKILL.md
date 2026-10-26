@@ -108,6 +108,13 @@ Used wherever a procedure below says "log the summary":
 - `ticketKey` is a real Jira key → `addCommentToJiraIssue` with the summary,
   **and** append a short ticketed entry to this month's work log page.
 - `ticketKey = WORKLOG` → append a full entry to this month's work log page.
+- Either way, if OTel is set up (`otelEndpoint` in config), tag the session
+  with the entry so dashboards can group usage by work item:
+  `state.py emit-info --session <Session id> --work-item <ticketKey> --title "<entry title>" --repo <basename of cwd>`.
+  Session start and `set-ticket --session` already send a coarse tag
+  (ticket key, `WORKLOG` or `unassigned`); this later one carries the
+  entry title and wins, because queries keep the newest tag per session.
+  A failure here is non-fatal: mention it in one line.
 
 ## Session-start procedure
 

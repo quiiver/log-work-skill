@@ -12,11 +12,18 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import state
 
-token = subprocess.run(
-    ["gcloud", "auth", "print-access-token"], capture_output=True, text=True, check=True
-).stdout.strip()
-headers = {"Authorization": f"Bearer {token}"}
-project = state.get_config(state.load_state(state.DEFAULT_STATE_PATH)).get("otelGcpProject")
-if project:
-    headers["x-goog-user-project"] = project
-print(json.dumps(headers))
+
+def headers(config=None):
+    if config is None:
+        config = state.get_config(state.load_state(state.DEFAULT_STATE_PATH))
+    token = subprocess.run(
+        ["gcloud", "auth", "print-access-token"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+    out = {"Authorization": f"Bearer {token}"}
+    if config.get("otelGcpProject"):
+        out["x-goog-user-project"] = config["otelGcpProject"]
+    return out
+
+
+if __name__ == "__main__":
+    print(json.dumps(headers()))

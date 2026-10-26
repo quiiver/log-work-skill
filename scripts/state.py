@@ -5,6 +5,7 @@ import json
 import os
 import re
 import subprocess
+import socket
 import sys
 import time
 
@@ -84,6 +85,58 @@ def append_ledger(state_path, record):
     record = {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), **record}
     with open(ledger_path(state_path), "a") as f:
         f.write(json.dumps(record, sort_keys=True) + "\n")
+
+
+def info_payload(config, session_id, work_item, title="", repo="", now_ns=None):
+    """OTLP/JSON gauge `log_work.session.info` mapping a session to its work item.
+
+    The value is the assignment time (unix seconds) so queries can keep the
+    latest assignment per session. Resource attributes match otel_setup.py's,
+    which Google's Telemetry API needs (instance + non-global region).
+    """
+    now_ns = now_ns or time.time_ns()
+    attr = lambda k, v: {"key": k, "value": {"stringValue": str(v)[:120]}}
+    resource = [
+        attr("service.name", "log-work"),
+        attr("service.instance.id", config.get("otelInstance", socket.gethostname().split(".")[0])),
+        attr("cloud.region", config.get("otelRegion", "us-central1")),
+    ]
+    if config.get("otelGcpProject"):
+        resource.append(attr("gcp.project_id", config["otelGcpProject"]))
+    point = {
+        "asInt": str(now_ns // 1_000_000_000),
+        "timeUnixNano": str(now_ns),
+        "attributes": [attr("session.id", session_id), attr("work_item", work_item),
+                       attr("work_title", title or work_item), attr("repo", repo or "-")],
+    }
+    return {"resourceMetrics": [{"resource": {"attributes": resource}, "scopeMetrics": [
+        {"scope": {"name": "log-work"},
+         "metrics": [{"name": "log_work.session.info", "gauge": {"dataPoints": [point]}}]}]}]}
+
+
+def send_info(config, payload):
+    import urllib.request
+    import otel_headers
+    hdrs = {"Content-Type": "application/json"}
+    if config.get("otelAuth", "gcloud" if config.get("otelGcpProject") else "none") == "gcloud":
+        hdrs.update(otel_headers.headers(config))
+    req = urllib.request.Request(config["otelEndpoint"].rstrip("/") + "/v1/metrics",
+                                 data=json.dumps(payload).encode(), headers=hdrs)
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        return resp.status
+
+
+def emit_info_async(state_path, session_id, work_item, title="", repo=""):
+    """Fire-and-forget so the SessionStart hook never waits on the network."""
+    config = get_config(load_state(state_path))
+    if not (config.get("otelEndpoint") and session_id and work_item):
+        return
+    subprocess.Popen(
+        [sys.executable, os.path.abspath(__file__), "--state-path", state_path, "emit-info",
+         "--session", session_id, "--work-item", work_item, "--title", title, "--repo", repo],
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
 
 
 def clear_ticket(state, cwd):
@@ -199,6 +252,8 @@ def cmd_set_ticket(args):
         append_ledger(args.state_path, {"event": "set-ticket", "session_id": args.session,
                                         "cwd": args.cwd, "ticketKey": args.ticket_key,
                                         "branch": args.branch})
+        emit_info_async(args.state_path, args.session, args.ticket_key,
+                        repo=os.path.basename(args.cwd.rstrip("/")))
     print(json.dumps(entry))
 
 
@@ -254,6 +309,17 @@ def cmd_config(args):
     print(json.dumps(config, sort_keys=True))
 
 
+def cmd_emit_info(args):
+    config = get_config(load_state(args.state_path))
+    if not config.get("otelEndpoint"):
+        sys.exit("emit-info: otelEndpoint not configured (see /log-work setup-otel)")
+    payload = info_payload(config, args.session, args.work_item, args.title, args.repo)
+    if args.dry_run:
+        print(json.dumps(payload, indent=2))
+        return
+    print(send_info(config, payload))
+
+
 def wrap_context(text, fmt):
     """Shape hook output for the harness: plain stdout (Claude Code, Codex) or JSON."""
     if fmt == "gemini":
@@ -291,6 +357,8 @@ def cmd_session_start(args):
         append_ledger(args.state_path, {"event": "session-start", "session_id": session_id,
                                         "cwd": cwd, "source": payload.get("source"),
                                         "ticketKey": entry["ticketKey"], "branch": branch})
+        emit_info_async(args.state_path, session_id, entry["ticketKey"] or "unassigned",
+                        repo=os.path.basename(cwd.rstrip("/")))
 
     lines = [
         f"log-work skill — SessionStart for {cwd}",
@@ -359,6 +427,14 @@ def build_parser():
     p.add_argument("key", nargs="?")
     p.add_argument("value", nargs="?", default="")
     p.set_defaults(func=cmd_config)
+
+    p = sub.add_parser("emit-info", help="publish log_work.session.info (session -> work item)")
+    p.add_argument("--session", required=True)
+    p.add_argument("--work-item", required=True)
+    p.add_argument("--title", default="")
+    p.add_argument("--repo", default="")
+    p.add_argument("--dry-run", action="store_true")
+    p.set_defaults(func=cmd_emit_info)
 
     p = sub.add_parser("session-start")
     p.add_argument(

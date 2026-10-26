@@ -185,6 +185,24 @@ short-lived `gcloud` tokens. Every session start and ticket change is appended
 to `~/.claude/log-work-sessions.jsonl`, so reports can join usage data to work
 items on `session.id`.
 
+### Dashboard
+
+`dashboards/claude-usage-by-work-item.json` is a Grafana dashboard: usage by work
+item (cost, tokens, active time, lines, commits/PRs, sessions), daily trends,
+model and subagent mix, cache share, and unassigned cost. Generate it with
+`dashboards/gen_dashboard.py`.
+
+- **Data source:** a Prometheus-type data source pointed at the project's Google
+  Managed Prometheus endpoint
+  (`https://monitoring.googleapis.com/v1/projects/<id>/location/global/prometheus`)
+  with a `roles/monitoring.viewer` identity.
+- **Labels:** in Prometheus, OTel's `service.name` shows up as `job`, and metric
+  and label names keep their dots, so queries use the quoted form
+  (`{"__name__"="claude_code.cost.usage"}`, `"session.id"`).
+- **Work item join:** usage is joined to work items through the
+  `log_work.session.info` metric that `state.py` sends at session start, on
+  ticket changes, and at log time.
+
 ## Tests
 
 ```bash

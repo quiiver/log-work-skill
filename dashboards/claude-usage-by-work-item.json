@@ -1,0 +1,891 @@
+{
+  "title": "Claude usage by work item",
+  "uid": "claude-usage-work-item",
+  "tags": [
+    "claude-code",
+    "log-work"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "editable": true,
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "description": "Claude Code OTel usage joined to log-work work items on session.id (log_work.session.info). Cost is a list-price estimate.",
+  "templating": {
+    "list": [
+      {
+        "type": "datasource",
+        "name": "ds",
+        "label": "Data source",
+        "query": "prometheus",
+        "current": {}
+      },
+      {
+        "type": "query",
+        "name": "work_item",
+        "label": "Work item",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${ds}"
+        },
+        "query": {
+          "query": "label_values({\"__name__\"=\"log_work.session.info\"}, work_item)",
+          "refId": "wi"
+        },
+        "definition": "label_values({\"__name__\"=\"log_work.session.info\"}, work_item)",
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "refresh": 2,
+        "sort": 1
+      },
+      {
+        "type": "constant",
+        "name": "jira_base",
+        "hide": 2,
+        "query": "https://mozilla-hub.atlassian.net/browse"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Overview",
+      "collapsed": false,
+      "id": 1,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Cost (est.)",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum(sum by (work_item) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.cost.usage\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1)))",
+          "refId": "A",
+          "legendFormat": "",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "id": 2
+    },
+    {
+      "type": "stat",
+      "title": "Active hours (you)",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum(sum by (work_item) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.active_time.total\", type=\"user\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1))) / 3600",
+          "refId": "A",
+          "legendFormat": "",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "id": 3
+    },
+    {
+      "type": "stat",
+      "title": "Active hours (Claude)",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum(sum by (work_item) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.active_time.total\", type=\"cli\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1))) / 3600",
+          "refId": "A",
+          "legendFormat": "",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "id": 4
+    },
+    {
+      "type": "stat",
+      "title": "Sessions",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum(count by (work_item) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.session.count\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1)))",
+          "refId": "A",
+          "legendFormat": "",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "id": 5
+    },
+    {
+      "type": "stat",
+      "title": "Lines added",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum(sum by (work_item) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.lines_of_code.count\", type=\"added\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1)))",
+          "refId": "A",
+          "legendFormat": "",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "id": 6
+    },
+    {
+      "type": "stat",
+      "title": "Commits / PRs",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum(sum by (work_item) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.commit.count\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1)))",
+          "refId": "A",
+          "legendFormat": "",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "id": 7
+    },
+    {
+      "type": "stat",
+      "title": "Unassigned cost (no work item)",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum(sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.cost.usage\", job=~\"claude-code|claude-code-desktop\"}[$__range])) unless on(\"session.id\") last_over_time({\"__name__\"=\"log_work.session.info\"}[90d]))",
+          "refId": "A",
+          "legendFormat": "",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "description": "Sessions with usage but no log_work.session.info tag (log-work not tracking, or tag failed).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 3
+      },
+      "id": 8
+    },
+    {
+      "type": "row",
+      "title": "By work item",
+      "collapsed": false,
+      "id": 9,
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "Usage by work item",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum by (work_item, work_title) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.cost.usage\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1))",
+          "refId": "A",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum by (work_item, work_title) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.token.usage\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1))",
+          "refId": "B",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum by (work_item, work_title) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.active_time.total\", type=\"user\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1))",
+          "refId": "C",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum by (work_item, work_title) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.active_time.total\", type=\"cli\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1))",
+          "refId": "D",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum by (work_item, work_title) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.lines_of_code.count\", type=\"added\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1))",
+          "refId": "E",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum by (work_item, work_title) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.commit.count\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1))",
+          "refId": "F",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum by (work_item, work_title) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.pull_request.count\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1))",
+          "refId": "G",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "count by (work_item, work_title) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.session.count\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1))",
+          "refId": "H",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value #A": "Cost",
+              "Value #B": "Tokens",
+              "Value #C": "Active h (you)",
+              "Value #D": "Active h (Claude)",
+              "Value #E": "Lines added",
+              "Value #F": "Commits",
+              "Value #G": "PRs",
+              "Value #H": "Sessions",
+              "work_item": "Work item",
+              "work_title": "Title"
+            }
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "alias": "Active h (you) ",
+            "binary": {
+              "left": "Active h (you)",
+              "operator": "/",
+              "right": "3600"
+            },
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "alias": "Active h (Claude) ",
+            "binary": {
+              "left": "Active h (Claude)",
+              "operator": "/",
+              "right": "3600"
+            },
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Active h (you)": true,
+              "Active h (Claude)": true
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Cost",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 1
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Cost"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Tokens"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Work item"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open in Jira",
+                    "url": "${jira_base}/${__value.raw}",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 24,
+        "h": 10
+      },
+      "id": 10
+    },
+    {
+      "type": "row",
+      "title": "Trends",
+      "collapsed": false,
+      "id": 11,
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Cost per day by work item",
+      "interval": "1d",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum by (work_item) (sum by (\"session.id\") (increase({\"__name__\"=\"claude_code.cost.usage\", job=~\"claude-code|claude-code-desktop\"}[$__interval])) * on(\"session.id\") group_left(work_item) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1))",
+          "refId": "A",
+          "legendFormat": "{{work_item}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "sum"
+          ]
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "id": 12
+    },
+    {
+      "type": "timeseries",
+      "title": "Active hours per day by work item",
+      "interval": "1d",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum by (work_item) (sum by (\"session.id\") (increase({\"__name__\"=\"claude_code.active_time.total\", job=~\"claude-code|claude-code-desktop\"}[$__interval])) * on(\"session.id\") group_left(work_item) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1)) / 3600",
+          "refId": "A",
+          "legendFormat": "{{work_item}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "sum"
+          ]
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "id": 13
+    },
+    {
+      "type": "piechart",
+      "title": "Cost by model",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum by (model) (sum by (\"session.id\", model) (max_over_time({\"__name__\"=\"claude_code.cost.usage\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1))",
+          "refId": "A",
+          "legendFormat": "{{model}}",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "values": [
+            "value",
+            "percent"
+          ]
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 8,
+        "h": 8
+      },
+      "id": 14
+    },
+    {
+      "type": "piechart",
+      "title": "Cost: main vs subagent",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum by (query_source) (sum by (\"session.id\", query_source) (max_over_time({\"__name__\"=\"claude_code.cost.usage\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1))",
+          "refId": "A",
+          "legendFormat": "{{query_source}}",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "values": [
+            "value",
+            "percent"
+          ]
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 28,
+        "w": 8,
+        "h": 8
+      },
+      "id": 15
+    },
+    {
+      "type": "stat",
+      "title": "Cache-read share of input tokens",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum(sum by (work_item) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.token.usage\", type=\"cacheRead\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1))) / sum(sum by (work_item) (sum by (\"session.id\") (max_over_time({\"__name__\"=\"claude_code.token.usage\", type=~\"input|cacheRead|cacheCreation\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"$work_item\"}[90d])) + 1)))",
+          "refId": "A",
+          "legendFormat": "",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 28,
+        "w": 8,
+        "h": 8
+      },
+      "id": 16
+    }
+  ]
+}

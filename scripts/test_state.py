@@ -191,6 +191,32 @@ class TestCLI(unittest.TestCase):
             self.assertEqual({r["session_id"] for r in rows}, {"s-42"})
             self.assertEqual(rows[1]["ticketKey"], "WORKLOG")
 
+    def test_info_payload_shape(self):
+        cfg = {"otelGcpProject": "p", "otelInstance": "h", "otelRegion": "us-east1"}
+        p = state.info_payload(cfg, "s-1", "MZCLD-1", "x" * 200, "repo", now_ns=5_000_000_000)
+        rm = p["resourceMetrics"][0]
+        res = {a["key"]: a["value"]["stringValue"] for a in rm["resource"]["attributes"]}
+        self.assertEqual(res, {"service.name": "log-work", "service.instance.id": "h",
+                               "cloud.region": "us-east1", "gcp.project_id": "p"})
+        metric = rm["scopeMetrics"][0]["metrics"][0]
+        self.assertEqual(metric["name"], "log_work.session.info")
+        point = metric["gauge"]["dataPoints"][0]
+        self.assertEqual(point["asInt"], "5")
+        attrs = {a["key"]: a["value"]["stringValue"] for a in point["attributes"]}
+        self.assertEqual(attrs["session.id"], "s-1")
+        self.assertEqual(attrs["work_item"], "MZCLD-1")
+        self.assertEqual(len(attrs["work_title"]), 120)
+
+    def test_emit_info_skipped_without_endpoint(self):
+        with tempfile.TemporaryDirectory() as d:
+            state_path = os.path.join(d, "state.json")
+            # no otelEndpoint configured: session-start must not try to send
+            payload = json.dumps({"cwd": d, "session_id": "s-9"})
+            result = self._run(state_path, "session-start", input_text=payload)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            result = self._run(state_path, "emit-info", "--session", "s", "--work-item", "W")
+            self.assertNotEqual(result.returncode, 0)
+
     def test_git_username_cli(self):
         with tempfile.TemporaryDirectory() as d:
             state_path = os.path.join(d, "state.json")
