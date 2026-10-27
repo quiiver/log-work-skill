@@ -99,7 +99,9 @@ def info_payload(config, session_id, work_item, title="", repo="", now_ns=None):
         "asInt": str(now_ns // 1_000_000_000),
         "timeUnixNano": str(now_ns),
         "attributes": [attr("session.id", session_id), attr("work_item", work_item),
-                       attr("work_title", title or work_item), attr("repo", repo or "-")],
+                       attr("work_title", title or work_item), attr("repo", repo or "-")]
+        # same label name as Claude Code's own metrics, for the dashboard's user filter
+        + ([attr("user.email", config["userEmail"])] if config.get("userEmail") else []),
     }
     return otlp_metrics(config, [{"name": "log_work.session.info", "gauge": {"dataPoints": [point]}}])
 

@@ -48,6 +48,17 @@ class TestOtelSetup(unittest.TestCase):
                          "team=ce,gcp.project_id=p2,cloud.region=us-central1,service.instance.id=h")
         self.assertEqual(otel_setup.disable(twice, helper="/h"), settings)
 
+    def test_profile_block_replace_and_remove(self):
+        base = "export FOO=1\n"
+        once = otel_setup.set_profile_block(base, "a=b,c=d e")
+        self.assertIn("export OTEL_RESOURCE_ATTRIBUTES='a=b,c=d e'", once)
+        self.assertTrue(once.startswith(base))
+        twice = otel_setup.set_profile_block(once, "a=x")
+        self.assertEqual(twice.count(otel_setup.PROFILE_START), 1)
+        self.assertIn("OTEL_RESOURCE_ATTRIBUTES=a=x", twice)
+        self.assertEqual(otel_setup.set_profile_block(twice, None), "export FOO=1")
+        self.assertEqual(otel_setup.profile_path({"otelShellProfile": "none"}), None)
+
 
 if __name__ == "__main__":
     unittest.main()

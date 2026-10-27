@@ -216,6 +216,10 @@ class TestCLI(unittest.TestCase):
         self.assertEqual(attrs["session.id"], "s-1")
         self.assertEqual(attrs["work_item"], "MZCLD-1")
         self.assertEqual(len(attrs["work_title"]), 120)
+        self.assertNotIn("user.email", attrs)
+        p = state.info_payload({**cfg, "userEmail": "a@b.c"}, "s-1", "W")
+        point = p["resourceMetrics"][0]["scopeMetrics"][0]["metrics"][0]["gauge"]["dataPoints"][0]
+        self.assertIn({"key": "user.email", "value": {"stringValue": "a@b.c"}}, point["attributes"])
 
     def test_emit_info_skipped_without_endpoint(self):
         with tempfile.TemporaryDirectory() as d:

@@ -8,31 +8,43 @@ import json, os, sys
 DS = {"type": "prometheus", "uid": "${ds}"}
 # Latest work-item tag per session. Unticketed (WORKLOG) sessions show as
 # "WORKLOG: <work log entry title>" so each entry is its own row.
-_SEL = '{"__name__"="log_work.session.info", work_item=~"${work_item:regex}", work_item%s"WORKLOG"}'
+_SEL = ('{"__name__"="log_work.session.info", work_item=~"${work_item:regex}", '
+        '"user.email"=~"${email:regex}", work_item%s"WORKLOG"}')
 INFO = ('(0 * topk by ("session.id") (1, '
         f'label_replace(last_over_time({_SEL % "="}[90d]), "work_item", "WORKLOG: $1", "work_title", "(.+)")'
         f' or last_over_time({_SEL % "!="}[90d])) + 1)')
-# Usage the log-work hook derives from transcripts (all session types, incl. desktop),
-# preferred over Claude Code's native export, which desktop sessions don't send.
+# Usage the log-work hook derives from transcripts (all session types, incl. desktop).
+# Native export reaches Google from desktop only with the shell-profile workaround, so
+# metrics both sources have use the larger per-session value (see best()).
 HOOK = {"cost.usage": "log_work.usage.cost_usd", "token.usage": "log_work.usage.tokens",
         "lines_of_code.count": "log_work.usage.lines", "api_seconds": "log_work.usage.api_seconds",
         "tool_seconds": "log_work.usage.tool_seconds", "commit.count": "log_work.usage.commits",
         "pull_request.count": "log_work.usage.prs"}
-def M(name, extra=""):
-    if name in HOOK:
+BOTH = {"cost.usage", "token.usage", "lines_of_code.count", "commit.count", "pull_request.count"}
+def M(name, extra="", native=False):
+    if name in HOOK and not native:
         return "{" + f'"__name__"="{HOOK[name]}"' + (f", {extra}" if extra else "") + "}"
     sel = f'"__name__"="claude_code.{name}"' + (f", {extra}" if extra else "")
     return "{" + sel + ', job=~"claude-code|claude-code-desktop"}'
+def best(q, name, extra):
+    """q(selector) per session, from the hook and native export, keeping the larger.
+    Native is live but covers only the current process; the hook covers every run
+    but lags until the process stops."""
+    # ponytail: undercounts a resumed session while it runs; exact once it stops
+    if name not in BOTH:
+        return q(M(name, extra))
+    n, h = q(M(name, extra, native=True)), q(M(name, extra))
+    return f"(({n} > {h}) or {h} or {n})"
 def per_session(name, extra="", by=""):
     b = '"session.id"' + (f", {by}" if by else "")
     # latest value, not max: totals are cumulative per session, and a corrected
     # (lower) resend must replace the earlier one
-    return f"sum by ({b}) (last_over_time({M(name, extra)}[$__range]))"
+    return best(lambda sel: f"sum by ({b}) (last_over_time({sel}[$__range]))", name, extra)
 def joined(inner, by="work_item", labels="work_item, work_title"):
     return f"sum by ({by}) ({inner} * on(\"session.id\") group_left({labels}) {INFO})"
 def rate_joined(name, extra="", by="work_item", inner_by=""):
     b = '"session.id"' + (f", {inner_by}" if inner_by else "")
-    inner = f"sum by ({b}) (increase({M(name, extra)}[$__interval]))"
+    inner = best(lambda sel: f"sum by ({b}) (increase({sel}[$__interval]))", name, extra)
     return f"sum by ({by}) ({inner} * on(\"session.id\") group_left(work_item) {INFO})"
 
 def tgt(expr, ref, legend="", instant=True, fmt="time_series"):
@@ -127,19 +139,24 @@ add(stat("Cache-read share of input tokens",
     f'sum({joined(per_session("token.usage", CACHE))}) / sum({joined(per_session("token.usage", INPUTS))})',
     "percentunit", 1), 8, 8)
 
+_EMAILS = 'query_result(count by ("user.email") (last_over_time({"__name__"="log_work.session.info"}[90d])))'
 dash = {
     "title": "Claude usage by work item",
     "uid": "claude-usage-work-item",
     "tags": ["claude-code", "log-work"],
     "timezone": "browser", "schemaVersion": 39, "editable": True,
     "time": {"from": "now-30d", "to": "now"},
-    "description": "Claude usage joined to log-work work items on session.id (log_work.session.info). Cost, tokens, lines and Claude time come from the log-work transcript hook (log_work.usage.*, all session types; updates when a session's process stops). Commits and PRs are successful git commit / gh pr create tool calls (including subagents). Your active time comes from Claude Code's native OTel export (terminal sessions only). Cost is Claude Code's own list-price estimate.",
+    "description": "Claude usage joined to log-work work items on session.id (log_work.session.info). Cost, tokens, lines and Claude time come from the log-work transcript hook (log_work.usage.*, all session types; updates when a session's process stops). Commits and PRs are successful git commit / gh pr create tool calls (including subagents). Your active time comes from Claude Code's native OTel export (terminal sessions only). Where both exist, cost, tokens, lines, commits and PRs use the larger of the hook and native values per session. Filter by user with the User variable (user.email on the work-item tag). Cost is Claude Code's own list-price estimate.",
     "templating": {"list": [
         {"type": "datasource", "name": "ds", "label": "Data source", "query": "prometheus", "regex": "/gcp-v2-.*/",
          "current": {"text": "gcp-v2-nonprod", "value": "edq6thuke248we"}},
         {"type": "query", "name": "work_item", "label": "Work item", "datasource": DS,
          "query": {"query": 'label_values({"__name__"="log_work.session.info"}, work_item)', "refId": "wi"},
          "definition": 'label_values({"__name__"="log_work.session.info"}, work_item)',
+         "includeAll": True, "multi": True, "allValue": ".*", "current": {"text": "All", "value": "$__all"}, "refresh": 2, "sort": 1},
+        # "All" (.*) also keeps sessions tagged before user.email was added
+        {"type": "query", "name": "email", "label": "User", "datasource": DS,
+         "query": {"query": _EMAILS, "refId": "em"}, "definition": _EMAILS, "regex": '/user.email="([^"]+)"/',
          "includeAll": True, "multi": True, "allValue": ".*", "current": {"text": "All", "value": "$__all"}, "refresh": 2, "sort": 1},
         {"type": "constant", "name": "jira_base", "hide": 2, "query": "https://mozilla-hub.atlassian.net/browse"},
     ]},

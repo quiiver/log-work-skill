@@ -45,7 +45,8 @@ never ask again:
 | `workLogFolderId` | CQL `space = "<confluenceSpaceKey>" AND type = folder AND title = "Work Log"`, else create it (private, space root) |
 | `reportsFolderId` | Same as above, but titled `Reports` and under `workLogFolderId` |
 | `githubLogin` | `gh api user --jq .login` |
-| `otelEndpoint`, `otelProtocol`, `otelGcpProject`, `otelAuth`, `otelRegion`, `otelInstance` | Only for **OTel setup** (below): ask the user |
+| `otelEndpoint`, `otelProtocol`, `otelGcpProject`, `otelAuth`, `otelRegion`, `otelInstance`, `otelShellProfile` | Only for **OTel setup** (below): ask the user |
+| `userEmail` | The user's work email (e.g. from `atlassianUserInfo`); tags sessions so the dashboard's User filter works. Only with OTel set up |
 
 If a call using a cached ID fails with not-found, unset that key, resolve
 it again, and retry once.
@@ -419,9 +420,10 @@ to the work log.
      `roles/serviceusage.serviceUsageConsumer`. If either check fails,
      stop and tell the user what's missing.
 2. Run `python3 ~/.claude/skills/log-work/scripts/otel_setup.py --dry-run`
-   and show the user the changes it would make to `~/.claude/settings.json`.
+   and show the user the changes it would make to `~/.claude/settings.json`
+   and their shell profile.
 3. On a clear yes, run it again without `--dry-run`. It writes a backup of
-   `settings.json` first.
+   each file first.
    - It sets `CLAUDE_CODE_ENABLE_TELEMETRY`, the OTLP exporters, endpoint
      and protocol, cumulative metric temporality (needed by Cloud
      Monitoring), `OTEL_METRICS_INCLUDE_VERSION`, and
@@ -431,6 +433,15 @@ to the work log.
      `gcloud auth print-access-token` bearer token plus
      `x-goog-user-project` on each refresh. Never write a token into
      settings or config.
+   - **Desktop app:** Claude Desktop starts Code sessions with its own
+     `OTEL_RESOURCE_ATTRIBUTES`, so the settings.json value is ignored there
+     and Google rejects the metrics (anthropics/claude-code#67657). Desktop
+     does pass through the login shell's value, so the script also writes a
+     marked `export OTEL_RESOURCE_ATTRIBUTES=...` block to the shell profile
+     (`otelShellProfile`, default `~/.zshrc` or `~/.bash_profile`; `none`
+     skips it). This needs a full quit and reopen of Desktop. Check with
+     `ps eww -o command= -p $PPID | tr ' ' '\n' | grep ^OTEL_RESOURCE` from a
+     Desktop session's Bash tool.
 4. Tell the user to start a new session. To verify, look for
    `claude_code.session.count` in the project's Cloud Monitoring, using the
    PromQL form under **Report procedure**. If
@@ -495,10 +506,11 @@ returns in under 0.1 s and does the work in a detached
     counts.
 - **When it runs:** it skips untracked directories and runs only when
   `otelEndpoint` is configured.
-- **Reporting:** the dashboard and reports use these metrics for cost,
-  tokens, lines and Claude time. Claude Code's native metrics are used only
-  for what transcripts lack: your active time, which comes from terminal
-  sessions only.
+- **Reporting:** for cost, tokens, lines, commits and PRs the dashboard
+  takes the larger of these and Claude Code's native metrics per session:
+  native is live but covers only the current process, the hook covers every
+  run but lags. Claude time comes from the hook only, and your active time
+  from native metrics only.
 - **Format risk:** `cost-state` is not a documented format. If the totals
   stop moving, check that the lines still exist with these field names.
 

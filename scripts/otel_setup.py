@@ -10,15 +10,23 @@ Config keys (set with `state.py config <key> <value>`):
   otelRegion      GCP region for metric series (default us-central1; GCP only)
   otelInstance    instance label for metric series (default: short hostname; GCP only)
   otelTraces      true to also export traces (beta: CLAUDE_CODE_ENHANCED_TELEMETRY_BETA)
+  otelShellProfile  shell profile that also exports OTEL_RESOURCE_ATTRIBUTES (default
+                  ~/.zshrc or ~/.bash_profile from $SHELL; "none" to skip)
 
 Google's Telemetry API stores metrics as Prometheus series, which need an instance
 and a real region (not "global"); Claude Code sends neither, so they are added as
 resource attributes.
+
+Claude Desktop starts Code sessions with its own OTEL_RESOURCE_ATTRIBUTES, so the
+settings.json value is ignored there (anthropics/claude-code#67657). Desktop does pass
+through the login shell's value, so the same attributes are exported from the shell
+profile as well.
 """
 import argparse
 import json
 import os
 import re
+import shlex
 import shutil
 import socket
 import sys
@@ -40,6 +48,28 @@ MANAGED_ENV = [
     "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA",
 ]
 GCP_ATTRS = ["gcp.project_id", "cloud.region", "service.instance.id"]
+PROFILE_START, PROFILE_END = "# >>> log-work otel >>>", "# <<< log-work otel <<<"
+PROFILE_RE = re.compile(rf"\n*{re.escape(PROFILE_START)}\n.*?{re.escape(PROFILE_END)}\n?", re.S)
+
+
+def profile_path(config):
+    path = config.get("otelShellProfile")
+    if path == "none":
+        return None
+    if not path:
+        shell = os.path.basename(os.environ.get("SHELL", ""))
+        path = {"zsh": "~/.zshrc", "bash": "~/.bash_profile"}.get(shell)
+    return os.path.expanduser(path) if path else None
+
+
+def set_profile_block(text, attrs):
+    """Profile text with the log-work export block replaced (or removed when attrs is empty)."""
+    text = PROFILE_RE.sub("", text)
+    if not attrs:
+        return text
+    block = (f"{PROFILE_START}\n# Claude Desktop ignores settings.json for this "
+             f"(anthropics/claude-code#67657)\nexport OTEL_RESOURCE_ATTRIBUTES={shlex.quote(attrs)}\n{PROFILE_END}\n")
+    return (text.rstrip("\n") + "\n\n" if text.strip() else "") + block
 
 
 def _set_resource_attr(current, key, value):
@@ -143,18 +173,27 @@ def main(argv=None):
             print(f"env.{key}: {before.get(key)!r} -> {after.get(key)!r}")
     if settings.get("otelHeadersHelper") != new.get("otelHeadersHelper"):
         print(f"otelHeadersHelper: {settings.get('otelHeadersHelper')!r} -> {new.get('otelHeadersHelper')!r}")
-    if args.dry_run or new == settings:
-        print("no changes written" if new == settings else "dry run: nothing written")
+    profile = profile_path(config)
+    old_profile = open(profile).read() if profile and os.path.exists(profile) else ""
+    new_profile = set_profile_block(old_profile, after.get("OTEL_RESOURCE_ATTRIBUTES")) if profile else old_profile
+    if new_profile != old_profile:
+        print(f"{profile}: {'remove' if args.disable else 'set'} the OTEL_RESOURCE_ATTRIBUTES export block")
+    if args.dry_run or (new == settings and new_profile == old_profile):
+        print("dry run: nothing written" if args.dry_run else "no changes written")
         return
 
-    if os.path.exists(args.settings):
-        backup = f"{args.settings}.bak-{time.strftime('%Y%m%d%H%M%S')}"
-        shutil.copy2(args.settings, backup)
-        print(f"backup: {backup}")
-    with open(args.settings, "w") as f:
-        json.dump(new, f, indent=2)
-        f.write("\n")
-    print(f"wrote {args.settings}; restart Claude Code sessions to pick it up")
+    for path, old, text in [(args.settings, settings, json.dumps(new, indent=2) + "\n"),
+                            (profile, old_profile, new_profile)]:
+        if not path or (old == new if path == args.settings else old == text):
+            continue
+        if os.path.exists(path):
+            backup = f"{path}.bak-{time.strftime('%Y%m%d%H%M%S')}"
+            shutil.copy2(path, backup)
+            print(f"backup: {backup}")
+        with open(path, "w") as f:
+            f.write(text)
+        print(f"wrote {path}")
+    print("restart Claude Code sessions to pick it up (fully quit and reopen Claude Desktop)")
 
 
 if __name__ == "__main__":
