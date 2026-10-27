@@ -12,7 +12,7 @@
     "from": "now-30d",
     "to": "now"
   },
-  "description": "Claude usage joined to log-work work items on session.id (log_work.session.info). Cost, tokens, lines and Claude time come from the log-work transcript hook (log_work.usage.*, all session types; updates when a session's process stops). Commits and PRs are successful git commit / gh pr create tool calls (including subagents). Your active time comes from Claude Code's native OTel export (terminal sessions only). Where both exist, cost, tokens, lines, commits and PRs use the larger of the hook and native values per session. Filter by user with the User variable (user.email on the work-item tag). Cost is Claude Code's own list-price estimate.",
+  "description": "Claude usage joined to log-work work items on session.id (log_work.session.info). Cost, tokens, lines and Claude time come from the log-work transcript hook (log_work.usage.*, all session types; updates when a session's process stops). Commits and PRs are successful git commit / gh pr create tool calls (including subagents). Your active time comes from Claude Code's native OTel export (terminal sessions only). Where both exist, cost, tokens, lines, commits and PRs use the larger of the hook and native values per session. Turns are prompts you typed; tool calls include subagents. The Model variable filters cost, tokens and session counts. Filter by user with the User variable (user.email on the work-item tag). Cost is Claude Code's own list-price estimate.",
   "templating": {
     "list": [
       {
@@ -39,6 +39,29 @@
           "refId": "wi"
         },
         "definition": "label_values({\"__name__\"=\"log_work.session.info\"}, work_item)",
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "refresh": 2,
+        "sort": 1
+      },
+      {
+        "type": "query",
+        "name": "model",
+        "label": "Model",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${ds}"
+        },
+        "query": {
+          "query": "label_values({\"__name__\"=\"log_work.usage.cost_usd\"}, model)",
+          "refId": "mo"
+        },
+        "definition": "label_values({\"__name__\"=\"log_work.usage.cost_usd\"}, model)",
         "includeAll": true,
         "multi": true,
         "allValue": ".*",
@@ -104,7 +127,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum(sum by (work_item) (((sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\"}[$__range]))) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\"}[$__range])) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1)))",
+          "expr": "sum(sum by (work_item) (((sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[$__range]))) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[$__range])) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item, work_title) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d]))))))",
           "refId": "A",
           "legendFormat": "",
           "range": false,
@@ -134,7 +157,7 @@
       "gridPos": {
         "x": 0,
         "y": 1,
-        "w": 4,
+        "w": 3,
         "h": 4
       },
       "id": 2
@@ -148,7 +171,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum(sum by (work_item) (sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.active_time.total\", type=\"user\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1))) / 3600",
+          "expr": "sum(sum by (work_item) (sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.active_time.total\", type=\"user\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d])))))) / 3600",
           "refId": "A",
           "legendFormat": "",
           "range": false,
@@ -176,9 +199,9 @@
         "uid": "${ds}"
       },
       "gridPos": {
-        "x": 4,
+        "x": 3,
         "y": 1,
-        "w": 4,
+        "w": 3,
         "h": 4
       },
       "id": 3
@@ -192,7 +215,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "(sum(sum by (work_item) (sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.api_seconds\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1))) + sum(sum by (work_item) (sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.tool_seconds\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1)))) / 3600",
+          "expr": "(sum(sum by (work_item) (sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.api_seconds\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d])))))) + sum(sum by (work_item) (sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.tool_seconds\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d]))))))) / 3600",
           "refId": "A",
           "legendFormat": "",
           "range": false,
@@ -220,9 +243,9 @@
         "uid": "${ds}"
       },
       "gridPos": {
-        "x": 8,
+        "x": 6,
         "y": 1,
-        "w": 4,
+        "w": 3,
         "h": 4
       },
       "id": 4
@@ -236,7 +259,51 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum(count by (work_item) (((sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\"}[$__range]))) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\"}[$__range])) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item) (0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1)))",
+          "expr": "sum(count by (work_item) (((sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[$__range]))) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[$__range])) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d]))))))",
+          "refId": "A",
+          "legendFormat": "",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 9,
+        "y": 1,
+        "w": 3,
+        "h": 4
+      },
+      "id": 5
+    },
+    {
+      "type": "stat",
+      "title": "Lines added",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum(sum by (work_item) (((sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.lines_of_code.count\", type=\"added\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.lines\", type=\"added\"}[$__range]))) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.lines\", type=\"added\"}[$__range])) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.lines_of_code.count\", type=\"added\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item, work_title) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d]))))))",
           "refId": "A",
           "legendFormat": "",
           "range": false,
@@ -266,51 +333,7 @@
       "gridPos": {
         "x": 12,
         "y": 1,
-        "w": 4,
-        "h": 4
-      },
-      "id": 5
-    },
-    {
-      "type": "stat",
-      "title": "Lines added",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${ds}"
-          },
-          "expr": "sum(sum by (work_item) (((sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.lines_of_code.count\", type=\"added\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.lines\", type=\"added\"}[$__range]))) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.lines\", type=\"added\"}[$__range])) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.lines_of_code.count\", type=\"added\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1)))",
-          "refId": "A",
-          "legendFormat": "",
-          "range": false,
-          "instant": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none",
-          "decimals": 0
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "none",
-        "graphMode": "none"
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${ds}"
-      },
-      "gridPos": {
-        "x": 16,
-        "y": 1,
-        "w": 4,
+        "w": 3,
         "h": 4
       },
       "id": 6
@@ -324,7 +347,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum(sum by (work_item) (((sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.commit.count\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.commits\"}[$__range]))) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.commits\"}[$__range])) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.commit.count\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1)))",
+          "expr": "sum(sum by (work_item) (((sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.commit.count\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.commits\"}[$__range]))) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.commits\"}[$__range])) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.commit.count\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item, work_title) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d]))))))",
           "refId": "A",
           "legendFormat": "",
           "range": false,
@@ -352,12 +375,100 @@
         "uid": "${ds}"
       },
       "gridPos": {
-        "x": 20,
+        "x": 15,
         "y": 1,
-        "w": 4,
+        "w": 3,
         "h": 4
       },
       "id": 7
+    },
+    {
+      "type": "stat",
+      "title": "Turns (your prompts)",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum(sum by (work_item) (sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.turns\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d]))))))",
+          "refId": "A",
+          "legendFormat": "",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 1,
+        "w": 3,
+        "h": 4
+      },
+      "id": 8
+    },
+    {
+      "type": "stat",
+      "title": "Tool calls",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum(sum by (work_item) (sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.tool_calls\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d]))))))",
+          "refId": "A",
+          "legendFormat": "",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "none",
+        "graphMode": "none"
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 21,
+        "y": 1,
+        "w": 3,
+        "h": 4
+      },
+      "id": 9
     },
     {
       "type": "stat",
@@ -368,7 +479,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum(((sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\"}[$__range]))) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\"}[$__range])) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) unless on(\"session.id\") last_over_time({\"__name__\"=\"log_work.session.info\"}[90d]))",
+          "expr": "sum(((sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[$__range]))) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[$__range])) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) unless on(\"session.id\") last_over_time({\"__name__\"=\"log_work.session.info\"}[90d]))",
           "refId": "A",
           "legendFormat": "",
           "range": false,
@@ -402,13 +513,13 @@
         "w": 24,
         "h": 3
       },
-      "id": 8
+      "id": 10
     },
     {
       "type": "row",
       "title": "By work item",
       "collapsed": false,
-      "id": 9,
+      "id": 11,
       "gridPos": {
         "x": 0,
         "y": 8,
@@ -426,7 +537,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum by (work_item, work_title) (((sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\"}[$__range]))) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\"}[$__range])) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1))",
+          "expr": "sum by (work_item, work_title) (((sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[$__range]))) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[$__range])) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item, work_title) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d])))))",
           "refId": "A",
           "legendFormat": "",
           "range": false,
@@ -438,7 +549,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum by (work_item, work_title) (((sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.token.usage\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.tokens\"}[$__range]))) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.tokens\"}[$__range])) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.token.usage\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1))",
+          "expr": "sum by (work_item, work_title) (((sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.token.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.tokens\", model=~\"${model:regex}\"}[$__range]))) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.tokens\", model=~\"${model:regex}\"}[$__range])) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.token.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item, work_title) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d])))))",
           "refId": "B",
           "legendFormat": "",
           "range": false,
@@ -450,7 +561,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum by (work_item, work_title) (sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.active_time.total\", type=\"user\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1)) / 3600",
+          "expr": "sum by (work_item, work_title) (sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.active_time.total\", type=\"user\", job=~\"claude-code|claude-code-desktop\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d]))))) / 3600",
           "refId": "C",
           "legendFormat": "",
           "range": false,
@@ -462,7 +573,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum by (work_item, work_title) (sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.api_seconds\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1)) / 3600",
+          "expr": "sum by (work_item, work_title) (sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.api_seconds\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d]))))) / 3600",
           "refId": "D",
           "legendFormat": "",
           "range": false,
@@ -474,7 +585,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum by (work_item, work_title) (((sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.lines_of_code.count\", type=\"added\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.lines\", type=\"added\"}[$__range]))) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.lines\", type=\"added\"}[$__range])) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.lines_of_code.count\", type=\"added\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1))",
+          "expr": "sum by (work_item, work_title) (((sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.lines_of_code.count\", type=\"added\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.lines\", type=\"added\"}[$__range]))) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.lines\", type=\"added\"}[$__range])) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.lines_of_code.count\", type=\"added\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item, work_title) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d])))))",
           "refId": "E",
           "legendFormat": "",
           "range": false,
@@ -486,7 +597,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum by (work_item, work_title) (((sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.commit.count\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.commits\"}[$__range]))) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.commits\"}[$__range])) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.commit.count\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1))",
+          "expr": "sum by (work_item, work_title) (((sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.commit.count\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.commits\"}[$__range]))) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.commits\"}[$__range])) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.commit.count\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item, work_title) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d])))))",
           "refId": "F",
           "legendFormat": "",
           "range": false,
@@ -498,7 +609,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum by (work_item, work_title) (((sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.pull_request.count\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.prs\"}[$__range]))) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.prs\"}[$__range])) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.pull_request.count\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1))",
+          "expr": "sum by (work_item, work_title) (((sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.pull_request.count\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.prs\"}[$__range]))) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.prs\"}[$__range])) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.pull_request.count\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item, work_title) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d])))))",
           "refId": "G",
           "legendFormat": "",
           "range": false,
@@ -510,8 +621,56 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "count by (work_item, work_title) (((sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\"}[$__range]))) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\"}[$__range])) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1))",
+          "expr": "sum by (work_item, work_title) (sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.turns\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d])))))",
+          "refId": "I",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum by (work_item, work_title) (sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.tool_calls\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d])))))",
+          "refId": "J",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "count by (work_item, work_title) (((sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[$__range]))) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[$__range])) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item, work_title) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d])))))",
           "refId": "H",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum by (work_item, work_title) (((sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.commit.count\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.commits\"}[$__range]))) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.commits\"}[$__range])) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.commit.count\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item, work_title) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d]))))) / count by (work_item, work_title) (((sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[$__range]))) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[$__range])) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item, work_title) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d])))))",
+          "refId": "K",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum by (work_item, work_title) (((sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.pull_request.count\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.prs\"}[$__range]))) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.prs\"}[$__range])) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.pull_request.count\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item, work_title) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d]))))) / count by (work_item, work_title) (((sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[$__range]))) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[$__range])) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item, work_title) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d])))))",
+          "refId": "L",
           "legendFormat": "",
           "range": false,
           "instant": true,
@@ -537,7 +696,11 @@
               "Value #E": "Lines added",
               "Value #F": "Commits",
               "Value #G": "PRs",
+              "Value #I": "Turns",
+              "Value #J": "Tool calls",
               "Value #H": "Sessions",
+              "Value #K": "Commits / session",
+              "Value #L": "PRs / session",
               "work_item": "Work item",
               "work_title": "Title"
             }
@@ -621,16 +784,155 @@
         "w": 24,
         "h": 10
       },
-      "id": 10
+      "id": 12
+    },
+    {
+      "type": "table",
+      "title": "Cost and tokens by work item and model",
+      "description": "Filter with the Model variable to find work items that could move to a cheaper model.",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum by (work_item, model) (((sum by (\"session.id\", model) (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\", model) (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[$__range]))) or sum by (\"session.id\", model) (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[$__range])) or sum by (\"session.id\", model) (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d])))))",
+          "refId": "A",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum by (work_item, model) (((sum by (\"session.id\", model) (last_over_time({\"__name__\"=\"claude_code.token.usage\", type=\"input\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\", model) (last_over_time({\"__name__\"=\"log_work.usage.tokens\", type=\"input\", model=~\"${model:regex}\"}[$__range]))) or sum by (\"session.id\", model) (last_over_time({\"__name__\"=\"log_work.usage.tokens\", type=\"input\", model=~\"${model:regex}\"}[$__range])) or sum by (\"session.id\", model) (last_over_time({\"__name__\"=\"claude_code.token.usage\", type=\"input\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d])))))",
+          "refId": "B",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum by (work_item, model) (((sum by (\"session.id\", model) (last_over_time({\"__name__\"=\"claude_code.token.usage\", type=\"output\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\", model) (last_over_time({\"__name__\"=\"log_work.usage.tokens\", type=\"output\", model=~\"${model:regex}\"}[$__range]))) or sum by (\"session.id\", model) (last_over_time({\"__name__\"=\"log_work.usage.tokens\", type=\"output\", model=~\"${model:regex}\"}[$__range])) or sum by (\"session.id\", model) (last_over_time({\"__name__\"=\"claude_code.token.usage\", type=\"output\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d])))))",
+          "refId": "C",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum by (work_item, model) (((sum by (\"session.id\", model) (last_over_time({\"__name__\"=\"claude_code.token.usage\", type=\"cacheRead\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\", model) (last_over_time({\"__name__\"=\"log_work.usage.tokens\", type=\"cacheRead\", model=~\"${model:regex}\"}[$__range]))) or sum by (\"session.id\", model) (last_over_time({\"__name__\"=\"log_work.usage.tokens\", type=\"cacheRead\", model=~\"${model:regex}\"}[$__range])) or sum by (\"session.id\", model) (last_over_time({\"__name__\"=\"claude_code.token.usage\", type=\"cacheRead\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d])))))",
+          "refId": "D",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum by (work_item, model) (((sum by (\"session.id\", model) (last_over_time({\"__name__\"=\"claude_code.token.usage\", type=\"cacheCreation\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\", model) (last_over_time({\"__name__\"=\"log_work.usage.tokens\", type=\"cacheCreation\", model=~\"${model:regex}\"}[$__range]))) or sum by (\"session.id\", model) (last_over_time({\"__name__\"=\"log_work.usage.tokens\", type=\"cacheCreation\", model=~\"${model:regex}\"}[$__range])) or sum by (\"session.id\", model) (last_over_time({\"__name__\"=\"claude_code.token.usage\", type=\"cacheCreation\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d])))))",
+          "refId": "E",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value #A": "Cost",
+              "Value #B": "Input",
+              "Value #C": "Output",
+              "Value #D": "Cache read",
+              "Value #E": "Cache write",
+              "work_item": "Work item",
+              "model": "Model"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Cost",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 1
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Cost"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "currencyUSD"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 24,
+        "h": 10
+      },
+      "id": 13
     },
     {
       "type": "row",
       "title": "Trends",
       "collapsed": false,
-      "id": 11,
+      "id": 14,
       "gridPos": {
         "x": 0,
-        "y": 19,
+        "y": 29,
         "w": 24,
         "h": 1
       },
@@ -646,7 +948,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum by (work_item) (((sum by (\"session.id\") (increase({\"__name__\"=\"claude_code.cost.usage\", job=~\"claude-code|claude-code-desktop\"}[$__interval])) > sum by (\"session.id\") (increase({\"__name__\"=\"log_work.usage.cost_usd\"}[$__interval]))) or sum by (\"session.id\") (increase({\"__name__\"=\"log_work.usage.cost_usd\"}[$__interval])) or sum by (\"session.id\") (increase({\"__name__\"=\"claude_code.cost.usage\", job=~\"claude-code|claude-code-desktop\"}[$__interval]))) * on(\"session.id\") group_left(work_item) (0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1))",
+          "expr": "sum by (work_item) (((sum by (\"session.id\") (increase({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__interval])) > sum by (\"session.id\") (increase({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[$__interval]))) or sum by (\"session.id\") (increase({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[$__interval])) or sum by (\"session.id\") (increase({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__interval]))) * on(\"session.id\") group_left(work_item) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d])))))",
           "refId": "A",
           "legendFormat": "{{work_item}}",
           "range": true,
@@ -681,11 +983,11 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 20,
+        "y": 30,
         "w": 12,
         "h": 8
       },
-      "id": 12
+      "id": 15
     },
     {
       "type": "timeseries",
@@ -697,7 +999,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "(sum by (work_item) (sum by (\"session.id\") (increase({\"__name__\"=\"log_work.usage.api_seconds\"}[$__interval])) * on(\"session.id\") group_left(work_item) (0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1)) + sum by (work_item) (sum by (\"session.id\") (increase({\"__name__\"=\"log_work.usage.tool_seconds\"}[$__interval])) * on(\"session.id\") group_left(work_item) (0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1))) / 3600",
+          "expr": "(sum by (work_item) (sum by (\"session.id\") (increase({\"__name__\"=\"log_work.usage.api_seconds\"}[$__interval])) * on(\"session.id\") group_left(work_item) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d]))))) + sum by (work_item) (sum by (\"session.id\") (increase({\"__name__\"=\"log_work.usage.tool_seconds\"}[$__interval])) * on(\"session.id\") group_left(work_item) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d])))))) / 3600",
           "refId": "A",
           "legendFormat": "{{work_item}}",
           "range": true,
@@ -732,11 +1034,11 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 20,
+        "y": 30,
         "w": 12,
         "h": 8
       },
-      "id": 13
+      "id": 16
     },
     {
       "type": "piechart",
@@ -747,7 +1049,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum by (model) (((sum by (\"session.id\", model) (last_over_time({\"__name__\"=\"claude_code.cost.usage\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\", model) (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\"}[$__range]))) or sum by (\"session.id\", model) (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\"}[$__range])) or sum by (\"session.id\", model) (last_over_time({\"__name__\"=\"claude_code.cost.usage\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item) (0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1))",
+          "expr": "sum by (model) (((sum by (\"session.id\", model) (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\", model) (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[$__range]))) or sum by (\"session.id\", model) (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[$__range])) or sum by (\"session.id\", model) (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d])))))",
           "refId": "A",
           "legendFormat": "{{model}}",
           "range": false,
@@ -781,11 +1083,11 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 28,
+        "y": 38,
         "w": 8,
         "h": 8
       },
-      "id": 14
+      "id": 17
     },
     {
       "type": "piechart",
@@ -796,7 +1098,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum(sum by (work_item) (sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.api_seconds\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1))) / 3600",
+          "expr": "sum(sum by (work_item) (sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.api_seconds\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d])))))) / 3600",
           "refId": "A",
           "legendFormat": "model",
           "range": false,
@@ -807,7 +1109,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum(sum by (work_item) (sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.tool_seconds\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1))) / 3600",
+          "expr": "sum(sum by (work_item) (sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.tool_seconds\"}[$__range])) * on(\"session.id\") group_left(work_item, work_title) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d])))))) / 3600",
           "refId": "B",
           "legendFormat": "tools",
           "range": false,
@@ -841,11 +1143,60 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 28,
+        "y": 38,
         "w": 8,
         "h": 8
       },
-      "id": 15
+      "id": 18
+    },
+    {
+      "type": "piechart",
+      "title": "Tokens by type",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds}"
+          },
+          "expr": "sum by (type) (((sum by (\"session.id\", type) (last_over_time({\"__name__\"=\"claude_code.token.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\", type) (last_over_time({\"__name__\"=\"log_work.usage.tokens\", model=~\"${model:regex}\"}[$__range]))) or sum by (\"session.id\", type) (last_over_time({\"__name__\"=\"log_work.usage.tokens\", model=~\"${model:regex}\"}[$__range])) or sum by (\"session.id\", type) (last_over_time({\"__name__\"=\"claude_code.token.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d])))))",
+          "refId": "A",
+          "legendFormat": "{{type}}",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "values": [
+            "value",
+            "percent"
+          ]
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 38,
+        "w": 8,
+        "h": 8
+      },
+      "id": 19
     },
     {
       "type": "stat",
@@ -856,7 +1207,7 @@
             "type": "prometheus",
             "uid": "${ds}"
           },
-          "expr": "sum(sum by (work_item) (((sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.token.usage\", type=\"cacheRead\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.tokens\", type=\"cacheRead\"}[$__range]))) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.tokens\", type=\"cacheRead\"}[$__range])) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.token.usage\", type=\"cacheRead\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1))) / sum(sum by (work_item) (((sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.token.usage\", type=~\"input|cacheRead|cacheCreation\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.tokens\", type=~\"input|cacheRead|cacheCreation\"}[$__range]))) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.tokens\", type=~\"input|cacheRead|cacheCreation\"}[$__range])) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.token.usage\", type=~\"input|cacheRead|cacheCreation\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item, work_title) (0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1)))",
+          "expr": "sum(sum by (work_item) (((sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.token.usage\", type=\"cacheRead\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.tokens\", type=\"cacheRead\", model=~\"${model:regex}\"}[$__range]))) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.tokens\", type=\"cacheRead\", model=~\"${model:regex}\"}[$__range])) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.token.usage\", type=\"cacheRead\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item, work_title) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d])))))) / sum(sum by (work_item) (((sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.token.usage\", type=~\"input|cacheRead|cacheCreation\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range])) > sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.tokens\", type=~\"input|cacheRead|cacheCreation\", model=~\"${model:regex}\"}[$__range]))) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.tokens\", type=~\"input|cacheRead|cacheCreation\", model=~\"${model:regex}\"}[$__range])) or sum by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.token.usage\", type=~\"input|cacheRead|cacheCreation\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[$__range]))) * on(\"session.id\") group_left(work_item, work_title) ((0 * topk by (\"session.id\") (1, label_replace(last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item=\"WORKLOG\"}[90d]), \"work_item\", \"WORKLOG: $1\", \"work_title\", \"(.+)\") or last_over_time({\"__name__\"=\"log_work.session.info\", work_item=~\"${work_item:regex}\", \"user.email\"=~\"${email:regex}\", work_item!=\"WORKLOG\"}[90d])) + 1) and on(\"session.id\") (count by (\"session.id\") (last_over_time({\"__name__\"=\"log_work.usage.cost_usd\", model=~\"${model:regex}\"}[90d])) or count by (\"session.id\") (last_over_time({\"__name__\"=\"claude_code.cost.usage\", model=~\"${model:regex}\", job=~\"claude-code|claude-code-desktop\"}[90d]))))))",
           "refId": "A",
           "legendFormat": "",
           "range": false,
@@ -884,12 +1235,12 @@
         "uid": "${ds}"
       },
       "gridPos": {
-        "x": 16,
-        "y": 28,
+        "x": 0,
+        "y": 46,
         "w": 8,
         "h": 8
       },
-      "id": 16
+      "id": 20
     }
   ]
 }

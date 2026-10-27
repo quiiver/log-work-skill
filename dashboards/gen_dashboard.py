@@ -19,9 +19,16 @@ INFO = ('(0 * topk by ("session.id") (1, '
 HOOK = {"cost.usage": "log_work.usage.cost_usd", "token.usage": "log_work.usage.tokens",
         "lines_of_code.count": "log_work.usage.lines", "api_seconds": "log_work.usage.api_seconds",
         "tool_seconds": "log_work.usage.tool_seconds", "commit.count": "log_work.usage.commits",
-        "pull_request.count": "log_work.usage.prs"}
+        "pull_request.count": "log_work.usage.prs", "turns": "log_work.usage.turns",
+        "tool_calls": "log_work.usage.tool_calls"}
+MODELED = {"cost.usage", "token.usage"}  # carry a model label; filtered by the Model variable
+def _used_model():
+    """Sessions that used a model matching the Model variable (any session when All)."""
+    return " or ".join(f'count by ("session.id") (last_over_time({M("cost.usage", native=n)}[90d]))' for n in (False, True))
 BOTH = {"cost.usage", "token.usage", "lines_of_code.count", "commit.count", "pull_request.count"}
 def M(name, extra="", native=False):
+    if name in MODELED:
+        extra = ", ".join(x for x in (extra, 'model=~"${model:regex}"') if x)
     if name in HOOK and not native:
         return "{" + f'"__name__"="{HOOK[name]}"' + (f", {extra}" if extra else "") + "}"
     sel = f'"__name__"="claude_code.{name}"' + (f", {extra}" if extra else "")
@@ -40,6 +47,7 @@ def per_session(name, extra="", by=""):
     # latest value, not max: totals are cumulative per session, and a corrected
     # (lower) resend must replace the earlier one
     return best(lambda sel: f"sum by ({b}) (last_over_time({sel}[$__range]))", name, extra)
+INFO = f'({INFO} and on("session.id") ({_used_model()}))'  # Model filter applies to every panel
 def joined(inner, by="work_item", labels="work_item, work_title"):
     return f"sum by ({by}) ({inner} * on(\"session.id\") group_left({labels}) {INFO})"
 def rate_joined(name, extra="", by="work_item", inner_by=""):
@@ -86,8 +94,10 @@ for title, expr, unit, dec in [
     ("Sessions", f"sum(count by (work_item) ({per_session('cost.usage')} * on(\"session.id\") group_left(work_item) {INFO}))", "none", 0),
     ("Lines added", f"sum({joined(per_session('lines_of_code.count', ADDED))})", "none", 0),
     ("Commits", f"sum({joined(per_session('commit.count'))})", "none", 0),
+    ("Turns (your prompts)", f"sum({joined(per_session('turns'))})", "none", 0),
+    ("Tool calls", f"sum({joined(per_session('tool_calls'))})", "none", 0),
 ]:
-    add(stat(title, expr, unit, dec), 4, 4)
+    add(stat(title, expr, unit, dec), 3, 4)
 add({"type": "stat", "title": "Unassigned cost (no work item)", "targets": [tgt(
     f"sum({per_session('cost.usage')} unless on(\"session.id\") last_over_time({{\"__name__\"=\"log_work.session.info\"}}[90d]))", "A")],
     "fieldConfig": {"defaults": {"unit": "currencyUSD", "decimals": 2}, "overrides": []},
@@ -101,10 +111,16 @@ cols = [("A", "Cost", per_session("cost.usage")),
         ("D", "Claude h (model)", per_session("api_seconds"), " / 3600"),
         ("E", "Lines added", per_session("lines_of_code.count", 'type="added"')),
         ("F", "Commits", per_session("commit.count")),
-        ("G", "PRs", per_session("pull_request.count"))]
+        ("G", "PRs", per_session("pull_request.count")),
+        ("I", "Turns", per_session("turns")),
+        ("J", "Tool calls", per_session("tool_calls"))]
 targets = [tgt(joined(c[2], by="work_item, work_title") + (c[3] if len(c) > 3 else ""), c[0], fmt="table") for c in cols]
-targets.append(tgt(f'count by (work_item, work_title) ({per_session("cost.usage")} * on("session.id") group_left(work_item, work_title) {INFO})', "H", fmt="table"))
-rename = {f"Value #{c[0]}": c[1] for c in cols}; rename["Value #H"] = "Sessions"
+SESSIONS = f'count by (work_item, work_title) ({per_session("cost.usage")} * on("session.id") group_left(work_item, work_title) {INFO})'
+targets.append(tgt(SESSIONS, "H", fmt="table"))
+for ref, name in [("K", "commit.count"), ("L", "pull_request.count")]:  # outcomes per session
+    targets.append(tgt(f"{joined(per_session(name), by='work_item, work_title')} / {SESSIONS}", ref, fmt="table"))
+rename = {f"Value #{c[0]}": c[1] for c in cols}
+rename.update({"Value #H": "Sessions", "Value #K": "Commits / session", "Value #L": "PRs / session"})
 rename.update({"work_item": "Work item", "work_title": "Title"})
 add({"type": "table", "title": "Usage by work item", "targets": targets,
      "transformations": [{"id": "merge", "options": {}},
@@ -115,6 +131,21 @@ add({"type": "table", "title": "Usage by work item", "targets": targets,
          {"matcher": {"id": "byName", "options": "Tokens"}, "properties": [{"id": "unit", "value": "short"}]},
          {"matcher": {"id": "byName", "options": "Work item"}, "properties": [{"id": "links", "value": [
              {"title": "Open in Jira", "url": "${jira_base}/${__value.raw}", "targetBlank": True}]}]}]},
+     "options": {"showHeader": True}}, 24, 10)
+
+by_model = [("A", "Cost", per_session("cost.usage", by="model"))] + [
+    (ref, name, per_session("token.usage", f'type="{t}"', by="model"))
+    for ref, name, t in [("B", "Input", "input"), ("C", "Output", "output"), ("D", "Cache read", "cacheRead"),
+                         ("E", "Cache write", "cacheCreation")]]
+add({"type": "table", "title": "Cost and tokens by work item and model",
+     "description": "Filter with the Model variable to find work items that could move to a cheaper model.",
+     "targets": [tgt(joined(e, by="work_item, model", labels="work_item"), ref, fmt="table") for ref, _, e in by_model],
+     "transformations": [{"id": "merge", "options": {}},
+                         {"id": "organize", "options": {"excludeByName": {"Time": True}, "renameByName": {
+                             **{f"Value #{r}": n for r, n, _ in by_model}, "work_item": "Work item", "model": "Model"}}},
+                         {"id": "sortBy", "options": {"sort": [{"field": "Cost", "desc": True}]}}],
+     "fieldConfig": {"defaults": {"unit": "short", "decimals": 1}, "overrides": [
+         {"matcher": {"id": "byName", "options": "Cost"}, "properties": [{"id": "unit", "value": "currencyUSD"}, {"id": "decimals", "value": 2}]}]},
      "options": {"showHeader": True}}, 24, 10)
 
 row("Trends")
@@ -135,10 +166,15 @@ add({"type": "piechart", "title": "Claude time: model vs tools", "targets": [
     tgt(f"sum({joined(per_session('tool_seconds'))}) / 3600", "B", "tools")],
     "fieldConfig": {"defaults": {"unit": "h"}, "overrides": []},
     "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "legend": {"displayMode": "table", "placement": "right", "values": ["value", "percent"]}}}, 8, 8)
+add({"type": "piechart", "title": "Tokens by type", "targets": [tgt(
+    joined(per_session("token.usage", by="type"), by="type", labels="work_item"), "A", "{{type}}")],
+    "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+    "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "legend": {"displayMode": "table", "placement": "right", "values": ["value", "percent"]}}}, 8, 8)
 add(stat("Cache-read share of input tokens",
     f'sum({joined(per_session("token.usage", CACHE))}) / sum({joined(per_session("token.usage", INPUTS))})',
     "percentunit", 1), 8, 8)
 
+_MODELS = 'label_values({"__name__"="log_work.usage.cost_usd"}, model)'
 _EMAILS = 'query_result(count by ("user.email") (last_over_time({"__name__"="log_work.session.info"}[90d])))'
 dash = {
     "title": "Claude usage by work item",
@@ -146,13 +182,16 @@ dash = {
     "tags": ["claude-code", "log-work"],
     "timezone": "browser", "schemaVersion": 39, "editable": True,
     "time": {"from": "now-30d", "to": "now"},
-    "description": "Claude usage joined to log-work work items on session.id (log_work.session.info). Cost, tokens, lines and Claude time come from the log-work transcript hook (log_work.usage.*, all session types; updates when a session's process stops). Commits and PRs are successful git commit / gh pr create tool calls (including subagents). Your active time comes from Claude Code's native OTel export (terminal sessions only). Where both exist, cost, tokens, lines, commits and PRs use the larger of the hook and native values per session. Filter by user with the User variable (user.email on the work-item tag). Cost is Claude Code's own list-price estimate.",
+    "description": "Claude usage joined to log-work work items on session.id (log_work.session.info). Cost, tokens, lines and Claude time come from the log-work transcript hook (log_work.usage.*, all session types; updates when a session's process stops). Commits and PRs are successful git commit / gh pr create tool calls (including subagents). Your active time comes from Claude Code's native OTel export (terminal sessions only). Where both exist, cost, tokens, lines, commits and PRs use the larger of the hook and native values per session. Turns are prompts you typed; tool calls include subagents. The Model variable filters cost, tokens and session counts. Filter by user with the User variable (user.email on the work-item tag). Cost is Claude Code's own list-price estimate.",
     "templating": {"list": [
         {"type": "datasource", "name": "ds", "label": "Data source", "query": "prometheus", "regex": "/gcp-v2-.*/",
          "current": {"text": "gcp-v2-nonprod", "value": "edq6thuke248we"}},
         {"type": "query", "name": "work_item", "label": "Work item", "datasource": DS,
          "query": {"query": 'label_values({"__name__"="log_work.session.info"}, work_item)', "refId": "wi"},
          "definition": 'label_values({"__name__"="log_work.session.info"}, work_item)',
+         "includeAll": True, "multi": True, "allValue": ".*", "current": {"text": "All", "value": "$__all"}, "refresh": 2, "sort": 1},
+        {"type": "query", "name": "model", "label": "Model", "datasource": DS,
+         "query": {"query": _MODELS, "refId": "mo"}, "definition": _MODELS,
          "includeAll": True, "multi": True, "allValue": ".*", "current": {"text": "All", "value": "$__all"}, "refresh": 2, "sort": 1},
         # "All" (.*) also keeps sessions tagged before user.email was added
         {"type": "query", "name": "email", "label": "User", "datasource": DS,

@@ -58,11 +58,25 @@ def _tool_kind(block):
     return None
 
 
-def scan(transcript, offset, pending=None, counts=None):
+COUNTS_VERSION = 2  # bump to recount every transcript from the start
+
+
+def _is_turn(d):
+    """A prompt the user typed (not a tool result, command output or injected text)."""
+    if d.get("type") != "user" or d.get("isMeta") or d.get("isCompactSummary"):
+        return False
+    content = (d.get("message") or {}).get("content")
+    if isinstance(content, list):
+        content = " ".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
+    return isinstance(content, str) and bool(content.strip()) and not content.lstrip().startswith("<")
+
+
+def scan(transcript, offset, pending=None, counts=None, turns=True):
     """Scan bytes after offset. Returns (latest cost-state per run, new offset).
 
-    If pending/counts dicts are given, also counts successful commit/PR tool
-    calls: a tool_use is held in pending until its tool_result arrives.
+    If pending/counts dicts are given, also counts tool calls, user turns (when
+    turns is true) and successful commit/PR tool calls: a commit/PR tool_use is
+    held in pending until its tool_result arrives.
     """
     runs = {}
     size = os.path.getsize(transcript)
@@ -75,10 +89,10 @@ def scan(transcript, offset, pending=None, counts=None):
                 break  # partial last line still being written; pick it up next time
             offset += len(raw)
             is_cost = b'"cost-state"' in raw
-            is_call = counts is not None and b'"tool_use"' in raw and (
-                b"commit" in raw or b"pr create" in raw or b"create_pull_request" in raw)
+            is_call = counts is not None and b'"tool_use"' in raw
             is_result = counts is not None and pending and b'"tool_result"' in raw
-            if not (is_cost or is_call or is_result):
+            is_turn = counts is not None and turns and b'"user"' in raw and b'"tool_result"' not in raw
+            if not (is_cost or is_call or is_result or is_turn):
                 continue
             try:
                 d = json.loads(raw)
@@ -89,6 +103,8 @@ def scan(transcript, offset, pending=None, counts=None):
                     "totalCostUSD", "totalAPIDuration", "totalToolDuration", "totalDuration",
                     "totalLinesAdded", "totalLinesRemoved", "modelUsage")}
                 continue
+            if is_turn and _is_turn(d):
+                counts["turns"] = counts.get("turns", 0) + 1
             content = (d.get("message") or {}).get("content")
             if not isinstance(content, list):
                 continue
@@ -96,6 +112,7 @@ def scan(transcript, offset, pending=None, counts=None):
                 if not isinstance(block, dict):
                     continue
                 if block.get("type") == "tool_use" and is_call:
+                    counts["tool_calls"] = counts.get("tool_calls", 0) + 1
                     kind = _tool_kind(block)
                     if kind:
                         pending[block.get("id")] = kind
@@ -130,6 +147,8 @@ def usage_metrics(session_id, runs, now_ns=None, counts=None, counts_start_ms=No
     if counts is not None and counts_start_ms:
         add("log_work.usage.commits", counts.get("commits", 0), counts_start_ms)
         add("log_work.usage.prs", counts.get("prs", 0), counts_start_ms)
+        add("log_work.usage.turns", counts.get("turns", 0), counts_start_ms)
+        add("log_work.usage.tool_calls", counts.get("tool_calls", 0), counts_start_ms)
     return [{"name": name, "sum": {"aggregationTemporality": 2, "isMonotonic": True, "dataPoints": points}}
             for name, points in series.items()]
 
@@ -143,11 +162,15 @@ def emit(state_path, session_id, transcript):
         fcntl.flock(lock, fcntl.LOCK_EX)  # Stop hooks can overlap
         store = json.load(open(path)) if os.path.exists(path) else {}
         entry = store.get(session_id) or {}
-        if "files" not in entry:  # first run, or pre-commit-counting state: rescan everything
-            entry = {"files": {}, "runs": entry.get("runs", {}), "pending": {}, "counts": {}}
+        if entry.get("counts_v") != COUNTS_VERSION:  # first run, or older counters: rescan everything
+            entry = {"files": {}, "runs": entry.get("runs", {}), "pending": {}, "counts": {},
+                     "counts_v": COUNTS_VERSION, **({"counts_start_ms": entry["counts_start_ms"]}
+                                                    if "counts_start_ms" in entry else {})}
         files = [transcript] + sorted(glob.glob(os.path.splitext(transcript)[0] + "/subagents/*.jsonl"))
         for f in files:
-            runs, entry["files"][f] = scan(f, entry["files"].get(f, 0), entry["pending"], entry["counts"])
+            # turns: only the main transcript; a subagent's prompt comes from Claude, not the user
+            runs, entry["files"][f] = scan(f, entry["files"].get(f, 0), entry["pending"], entry["counts"],
+                                           turns=f == transcript)
             if f == transcript:  # cost-state is session-wide and lives in the main transcript
                 entry["runs"].update(runs)
         if entry["runs"] and "counts_start_ms" not in entry:

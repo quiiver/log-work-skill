@@ -72,12 +72,30 @@ class TestUsage(unittest.TestCase):
             open(t, "w").write("".join(json.dumps(x) + "\n" for x in lines))
             pending, counts = {}, {}
             _, off = usage.scan(t, 0, pending, counts)
-            self.assertEqual(counts, {"commits": 1, "prs": 2})
+            self.assertEqual({k: counts[k] for k in ("commits", "prs")}, {"commits": 1, "prs": 2})
+            self.assertEqual(counts["tool_calls"], 8)
             self.assertEqual(set(pending), {"f"})
             open(t, "a").write(json.dumps(result("f")) + "\n")  # result lands in a later scan
             usage.scan(t, off, pending, counts)
             self.assertEqual(counts["commits"], 2)
             self.assertEqual(pending, {})
+
+    def test_counts_user_turns_only(self):
+        lines = [{"type": "user", "message": {"content": "fix the bug"}},
+                 {"type": "user", "message": {"content": [{"type": "text", "text": "and add a test"}]}},
+                 {"type": "user", "isMeta": True, "message": {"content": "injected"}},
+                 {"type": "user", "message": {"content": "<command-name>/compact</command-name>"}},
+                 {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "x"}]}},
+                 {"type": "assistant", "message": {"content": [{"type": "text", "text": "user"}]}}]
+        with tempfile.TemporaryDirectory() as d:
+            t = os.path.join(d, "t.jsonl")
+            open(t, "w").write("".join(json.dumps(x) + "\n" for x in lines))
+            counts = {}
+            usage.scan(t, 0, {}, counts)
+            self.assertEqual(counts.get("turns"), 2)
+            counts = {}
+            usage.scan(t, 0, {}, counts, turns=False)
+            self.assertNotIn("turns", counts)
 
     def test_emit_skips_without_endpoint(self):
         with tempfile.TemporaryDirectory() as d:
