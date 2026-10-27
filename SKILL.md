@@ -116,6 +116,9 @@ Used wherever a procedure below says "log the summary":
   (ticket key, `WORKLOG` or `unassigned`); this later one carries the
   entry title and wins, because queries keep the newest tag per session.
   A failure here is non-fatal: mention it in one line.
+- `set-ticket --title` publishes the ticket's Jira summary (`log_work.work_item.info`)
+  as the dashboard's title for that work item; omit `--title` for `WORKLOG`. To
+  set or fix one without retagging: `state.py set-title <ticketKey> "<Jira summary>"`.
 
 ## Session-start procedure
 
@@ -149,7 +152,7 @@ this yourself.
    - Otherwise, run the **Matching procedure** below to resolve a
      `ticketKey`.
 4. Once matching resolves a `ticketKey` (found, confirmed, or newly
-   created), run `state.py set-ticket <cwd> <ticketKey> --branch <currentBranch-or-empty> --session <Session id from the SessionStart context>`
+   created), run `state.py set-ticket <cwd> <ticketKey> --branch <currentBranch-or-empty> --session <Session id from the SessionStart context> --title "<Jira summary>"`
    (pass `--branch` with the current git branch name for git repos; omit
    `--branch` entirely for non-git directories — same rule as the manual
    procedure uses).
@@ -240,7 +243,7 @@ the same message):
    worked on, key decisions, outcome so far).
 2. Check `state.py get <cwd>`. If there's no `ticketKey` yet, run the
    **Matching procedure** to resolve one, then run
-   `state.py set-ticket <cwd> <ticketKey> --branch <currentBranch-or-empty> --session <Session id from the SessionStart context>`
+   `state.py set-ticket <cwd> <ticketKey> --branch <currentBranch-or-empty> --session <Session id from the SessionStart context> --title "<Jira summary>"`
    (pass `--branch` with the current git branch name for git repos; omit
    `--branch` entirely for non-git directories).
 3. Log the summary (see **Logging a summary**) against the resolved
@@ -252,7 +255,7 @@ ticket", "that's not it"):
 
 1. Run `state.py clear <cwd>`.
 2. Run the **Matching procedure** to resolve a new `ticketKey`.
-3. Run `state.py set-ticket <cwd> <ticketKey> --branch <currentBranch-or-empty> --session <Session id from the SessionStart context>`
+3. Run `state.py set-ticket <cwd> <ticketKey> --branch <currentBranch-or-empty> --session <Session id from the SessionStart context> --title "<Jira summary>"`
    (pass `--branch` with the current git branch name for git repos; omit
    `--branch` entirely for non-git directories).
 

@@ -106,6 +106,15 @@ def info_payload(config, session_id, work_item, title="", repo="", now_ns=None):
     return otlp_metrics(config, [{"name": "log_work.session.info", "gauge": {"dataPoints": [point]}}])
 
 
+def title_payload(config, work_item, title, now_ns=None):
+    """OTLP/JSON gauge `log_work.work_item.info`: a work item's title (Jira summary).
+    The value is the set time, so queries keep the latest title per work item."""
+    now_ns = now_ns or time.time_ns()
+    point = {"asInt": str(now_ns // 1_000_000_000), "timeUnixNano": str(now_ns),
+             "attributes": [attr("work_item", work_item), attr("work_title", title)]}
+    return otlp_metrics(config, [{"name": "log_work.work_item.info", "gauge": {"dataPoints": [point]}}])
+
+
 def attr(key, value):
     return {"key": key, "value": {"stringValue": str(value)[:120]}}
 
@@ -280,7 +289,19 @@ def cmd_set_ticket(args):
                                         "branch": args.branch})
         emit_info_async(args.state_path, args.session, args.ticket_key,
                         repo=os.path.basename(args.cwd.rstrip("/")))
+    if args.title and get_config(state).get("otelEndpoint"):
+        subprocess.Popen([sys.executable, os.path.abspath(__file__), "--state-path", args.state_path,
+                          "set-title", args.ticket_key, args.title],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
     print(json.dumps(entry))
+
+
+def cmd_set_title(args):
+    config = get_config(load_state(args.state_path))
+    if not config.get("otelEndpoint"):
+        sys.exit("set-title: otelEndpoint not configured (see /log-work setup-otel)")
+    print(send_info(config, title_payload(config, args.work_item, args.title)))
 
 
 def cmd_set_pending(args):
@@ -422,7 +443,13 @@ def build_parser():
     p.add_argument("ticket_key")
     p.add_argument("--branch", default=None)
     p.add_argument("--session", default=None, help="session id, recorded in the ledger")
+    p.add_argument("--title", default="", help="ticket summary, published as the work item's title")
     p.set_defaults(func=cmd_set_ticket)
+
+    p = sub.add_parser("set-title", help="publish log_work.work_item.info (work item -> title)")
+    p.add_argument("work_item")
+    p.add_argument("title")
+    p.set_defaults(func=cmd_set_title)
 
     p = sub.add_parser("set-pending")
     p.add_argument("cwd")

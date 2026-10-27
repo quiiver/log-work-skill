@@ -15,6 +15,13 @@ JIRA_RE = "[A-Z][A-Z0-9]+-[0-9]+"
 INFO = ('(0 * label_replace(topk by ("session.id") (1, '
         f'label_replace({_KEY % (_SEL % "=")}, "work_item", "WORKLOG: $1", "work_title", "(.+)")'
         f' or {_KEY % (_SEL % "!=")}), "jira", "$1", "work_key", "({JIRA_RE})") + 1)')
+INFO = f'label_replace({INFO}, "work_title", "$1", "jira", "(.+)")'  # ticket rows: title from TITLES below
+# Latest title per work item (Jira summary), from state.py set-title / set-ticket --title.
+TITLES = ('topk by (work_key) (1, label_replace(last_over_time({"__name__"="log_work.work_item.info"}[90d]), '
+          '"work_key", "$1", "work_item", "(.*)"))')
+def titled(e):
+    """Table rows with the work item's title where one is published, else as they are."""
+    return f"(({e}) * on(work_key) group_left(work_title) (0 * {TITLES} + 1)) or on(work_key) ({e})"
 # Usage the log-work hook derives from transcripts (all session types, incl. desktop).
 # Native export reaches Google from desktop only with the shell-profile workaround, so
 # metrics both sources have use the larger per-session value (see best()).
@@ -117,11 +124,11 @@ cols = [("A", "Cost", per_session("cost.usage")),
         ("I", "Turns", per_session("turns")),
         ("J", "Tool calls", per_session("tool_calls"))]
 KEYS = 'work_item, work_title, work_key, jira, "user.email"'
-targets = [tgt(joined(c[2], by=KEYS, labels=KEYS) + (c[3] if len(c) > 3 else ""), c[0], fmt="table") for c in cols]
+targets = [tgt(titled(joined(c[2], by=KEYS, labels=KEYS) + (c[3] if len(c) > 3 else "")), c[0], fmt="table") for c in cols]
 SESSIONS = f'count by ({KEYS}) ({per_session("cost.usage")} * on("session.id") group_left({KEYS}) {INFO})'
-targets.append(tgt(SESSIONS, "H", fmt="table"))
+targets.append(tgt(titled(SESSIONS), "H", fmt="table"))
 for ref, name in [("K", "commit.count"), ("L", "pull_request.count")]:  # outcomes per session
-    targets.append(tgt(f"{joined(per_session(name), by=KEYS, labels=KEYS)} / {SESSIONS}", ref, fmt="table"))
+    targets.append(tgt(titled(f"{joined(per_session(name), by=KEYS, labels=KEYS)} / {SESSIONS}"), ref, fmt="table"))
 # Clicking a work item filters this dashboard to it; ticket keys also get a Jira link.
 FILTER_URL = ("/d/claude-usage-work-item/claude-usage-by-work-item?var-work_item=${__data.fields.work_key}"
               "&${ds:queryparam}&${email:queryparam}&${model:queryparam}&${__url_time_range}")

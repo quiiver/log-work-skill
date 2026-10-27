@@ -10,6 +10,12 @@ import state
 
 
 class TestStateFunctions(unittest.TestCase):
+    def test_title_payload(self):
+        p = state.title_payload({}, "ABC-1", "Fix the thing", now_ns=5_000_000_000)
+        point = p["resourceMetrics"][0]["scopeMetrics"][0]["metrics"][0]["gauge"]["dataPoints"][0]
+        self.assertEqual({a["key"]: a["value"]["stringValue"] for a in point["attributes"]},
+                         {"work_item": "ABC-1", "work_title": "Fix the thing"})
+
     def test_get_entry_default_when_missing(self):
         entry = state.get_entry({}, "/some/dir")
         self.assertEqual(entry, state.default_entry())
