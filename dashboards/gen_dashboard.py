@@ -116,7 +116,7 @@ cols = [("A", "Cost", per_session("cost.usage")),
         ("G", "PRs", per_session("pull_request.count")),
         ("I", "Turns", per_session("turns")),
         ("J", "Tool calls", per_session("tool_calls"))]
-KEYS = "work_item, work_title, work_key, jira"
+KEYS = 'work_item, work_title, work_key, jira, "user.email"'
 targets = [tgt(joined(c[2], by=KEYS, labels=KEYS) + (c[3] if len(c) > 3 else ""), c[0], fmt="table") for c in cols]
 SESSIONS = f'count by ({KEYS}) ({per_session("cost.usage")} * on("session.id") group_left({KEYS}) {INFO})'
 targets.append(tgt(SESSIONS, "H", fmt="table"))
@@ -127,11 +127,11 @@ FILTER_URL = ("/d/claude-usage-work-item/claude-usage-by-work-item?var-work_item
               "&${ds:queryparam}&${email:queryparam}&${model:queryparam}&${__url_time_range}")
 rename = {f"Value #{c[0]}": c[1] for c in cols}
 rename.update({"Value #H": "Sessions", "Value #K": "Commits / session", "Value #L": "PRs / session"})
-rename.update({"work_item": "Work item", "work_title": "Title", "jira": "Jira"})
+rename.update({"work_item": "Work item", "work_title": "Title", "jira": "Jira", "user.email": "User"})
 add({"type": "table", "title": "Usage by work item", "targets": targets,
      "transformations": [{"id": "merge", "options": {}},
                          {"id": "organize", "options": {"excludeByName": {"Time": True}, "renameByName": rename,
-                                                        "indexByName": {"work_item": 0, "jira": 1, "work_title": 2}}},
+                                                        "indexByName": {"work_item": 0, "jira": 1, "work_title": 2, "user.email": 3}}},
                          {"id": "sortBy", "options": {"sort": [{"field": "Cost", "desc": True}]}}],
      "fieldConfig": {"defaults": {"decimals": 1}, "overrides": [
          {"matcher": {"id": "byName", "options": "Cost"}, "properties": [{"id": "unit", "value": "currencyUSD"}, {"id": "decimals", "value": 2}]},
