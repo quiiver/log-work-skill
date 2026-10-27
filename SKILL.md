@@ -504,6 +504,11 @@ returns in under 0.1 s and does the work in a detached
     `git commit` doesn't count. This is an approximation: a commit whose exit
     code a pipe hides (e.g. "nothing to commit" piped through `grep`) still
     counts.
+  - `log_work.usage.turns`: prompts the user typed in the main transcript (not
+    tool results, injected meta text or `<command-…>` lines).
+  - `log_work.usage.tool_calls`: every `tool_use` block, including subagents.
+  - Raising `COUNTS_VERSION` in `usage.py` makes the next run recount every
+    session's transcript from the start.
 - **When it runs:** it skips untracked directories and runs only when
   `otelEndpoint` is configured.
 - **Reporting:** for cost, tokens, lines, commits and PRs the dashboard

@@ -8,8 +8,8 @@ import json, os, sys
 DS = {"type": "prometheus", "uid": "${ds}"}
 # Latest work-item tag per session. Unticketed (WORKLOG) sessions show as
 # "WORKLOG: <work log entry title>" so each entry is its own row.
-_SEL = ('{"__name__"="log_work.session.info", work_item=~"${work_item:regex}", '
-        '"user.email"=~"${email:regex}", work_item%s"WORKLOG"}')
+_SEL = ('{"__name__"="log_work.session.info", work_item=~`${work_item:regex}`, '
+        '"user.email"=~`${email:regex}`, work_item%s"WORKLOG"}')
 INFO = ('(0 * topk by ("session.id") (1, '
         f'label_replace(last_over_time({_SEL % "="}[90d]), "work_item", "WORKLOG: $1", "work_title", "(.+)")'
         f' or last_over_time({_SEL % "!="}[90d])) + 1)')
@@ -28,7 +28,7 @@ def _used_model():
 BOTH = {"cost.usage", "token.usage", "lines_of_code.count", "commit.count", "pull_request.count"}
 def M(name, extra="", native=False):
     if name in MODELED:
-        extra = ", ".join(x for x in (extra, 'model=~"${model:regex}"') if x)
+        extra = ", ".join(x for x in (extra, 'model=~`${model:regex}`') if x)
     if name in HOOK and not native:
         return "{" + f'"__name__"="{HOOK[name]}"' + (f", {extra}" if extra else "") + "}"
     sel = f'"__name__"="claude_code.{name}"' + (f", {extra}" if extra else "")
