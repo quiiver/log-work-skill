@@ -35,6 +35,22 @@ class TestUsage(unittest.TestCase):
             runs3, _ = usage.scan(t, os.path.getsize(t) + 100)  # truncated file: rescan
             self.assertIn("1000", runs3)
 
+    def test_scan_skips_lines_copied_from_a_parent_session(self):
+        with tempfile.TemporaryDirectory() as d:
+            t = os.path.join(d, "t.jsonl")
+            with open(t, "w") as f:
+                f.write(json.dumps({**cost_state(9.0), "sessionId": "parent"}) + "\n")
+                f.write(json.dumps({"type": "user", "sessionId": "parent", "message": {"content": "hi"}}) + "\n")
+                f.write(json.dumps({**cost_state(1.0, start=2000), "sessionId": "fork"}) + "\n")
+            counts = {}
+            runs, _ = usage.scan(t, 0, {}, counts, session_id="fork")
+            self.assertEqual(list(runs), ["2000"])
+            self.assertEqual(counts, {})
+
+    def test_zeroed_keeps_model_keys(self):
+        z = usage.zeroed(cost_state(2.5))
+        self.assertEqual((z["totalCostUSD"], z["modelUsage"]["claude-x"]["costUSD"]), (0, 0))
+
     def test_usage_metrics_shape(self):
         runs = {"1000": cost_state(2.5)}
         metrics = {m["name"]: m for m in usage.usage_metrics("s-1", runs, now_ns=5_000_000_000)}

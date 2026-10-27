@@ -58,7 +58,7 @@ def _tool_kind(block):
     return None
 
 
-COUNTS_VERSION = 2  # bump to recount every transcript from the start
+COUNTS_VERSION = 3  # bump to recount every transcript from the start
 
 
 def _is_turn(d):
@@ -71,12 +71,14 @@ def _is_turn(d):
     return isinstance(content, str) and bool(content.strip()) and not content.lstrip().startswith("<")
 
 
-def scan(transcript, offset, pending=None, counts=None, turns=True):
+def scan(transcript, offset, pending=None, counts=None, turns=True, session_id=None):
     """Scan bytes after offset. Returns (latest cost-state per run, new offset).
 
     If pending/counts dicts are given, also counts tool calls, user turns (when
     turns is true) and successful commit/PR tool calls: a commit/PR tool_use is
-    held in pending until its tool_result arrives.
+    held in pending until its tool_result arrives. With session_id, lines from
+    other sessions are skipped: a forked session's transcript (and subagents)
+    starts with a copy of its parent's history, cost-state included.
     """
     runs = {}
     size = os.path.getsize(transcript)
@@ -88,6 +90,8 @@ def scan(transcript, offset, pending=None, counts=None, turns=True):
             if not raw.endswith(b"\n"):
                 break  # partial last line still being written; pick it up next time
             offset += len(raw)
+            if session_id and b'"sessionId"' in raw and session_id.encode() not in raw:
+                continue
             is_cost = b'"cost-state"' in raw
             is_call = counts is not None and b'"tool_use"' in raw
             is_result = counts is not None and pending and b'"tool_result"' in raw
@@ -153,6 +157,13 @@ def usage_metrics(session_id, runs, now_ns=None, counts=None, counts_start_ms=No
             for name, points in series.items()]
 
 
+def zeroed(run):
+    """run with every number set to 0, keeping its model keys so each series is overwritten."""
+    if isinstance(run, dict):
+        return {k: zeroed(v) for k, v in run.items()}
+    return 0 if isinstance(run, (int, float)) else run
+
+
 def emit(state_path, session_id, transcript):
     config = state.get_config(state.load_state(state_path))
     if not (config.get("otelEndpoint") and os.path.exists(transcript)):
@@ -162,26 +173,31 @@ def emit(state_path, session_id, transcript):
         fcntl.flock(lock, fcntl.LOCK_EX)  # Stop hooks can overlap
         store = json.load(open(path)) if os.path.exists(path) else {}
         entry = store.get(session_id) or {}
+        old_runs = {}
         if entry.get("counts_v") != COUNTS_VERSION:  # first run, or older counters: rescan everything
-            entry = {"files": {}, "runs": entry.get("runs", {}), "pending": {}, "counts": {},
+            old_runs = entry.get("runs", {})
+            entry = {"files": {}, "runs": {}, "pending": {}, "counts": {},
                      "counts_v": COUNTS_VERSION, **({"counts_start_ms": entry["counts_start_ms"]}
                                                     if "counts_start_ms" in entry else {})}
         files = [transcript] + sorted(glob.glob(os.path.splitext(transcript)[0] + "/subagents/*.jsonl"))
         for f in files:
             # turns: only the main transcript; a subagent's prompt comes from Claude, not the user
             runs, entry["files"][f] = scan(f, entry["files"].get(f, 0), entry["pending"], entry["counts"],
-                                           turns=f == transcript)
+                                           turns=f == transcript, session_id=session_id)
             if f == transcript:  # cost-state is session-wide and lives in the main transcript
                 entry["runs"].update(runs)
         if entry["runs"] and "counts_start_ms" not in entry:
             entry["counts_start_ms"] = min(int(r) for r in entry["runs"])
+        # Runs sent before but gone on rescan (e.g. a fork's copied parent runs):
+        # resend as zero so the dashboard's latest value replaces them.
+        dropped = {k: zeroed(v) for k, v in old_runs.items() if k not in entry["runs"]}
         store[session_id] = entry
         json.dump(store, open(path, "w"))
-    if not entry["runs"]:
+    if not (entry["runs"] or dropped):
         return "no cost-state yet"
     # Send every known run each time: points must be < 25h old, and resending
     # cumulative totals is idempotent.
-    metrics = usage_metrics(session_id, entry["runs"], counts=entry["counts"],
+    metrics = usage_metrics(session_id, {**dropped, **entry["runs"]}, counts=entry["counts"],
                             counts_start_ms=entry.get("counts_start_ms"))
     status = state.send_info(config, state.otlp_metrics(config, metrics))
     return f"sent {len(entry['runs'])} run(s), {entry['counts']}: HTTP {status}"
