@@ -184,13 +184,16 @@ def ts(title, expr, legend, unit="none", stack=True, interval="1d"):
 add(ts("Cost per day by work item", rate_joined("cost.usage"), "{{work_item}}", "currencyUSD"), 12, 8)
 add(ts("Claude hours per day by work item", f"({rate_joined('api_seconds')} + {rate_joined('tool_seconds')}) / 3600", "{{work_item}}"), 12, 8)
 def bargauge(title, expr, legend, unit, orientation, color, display, name_placement):
+    # one row per series, sorted by value, so bars run highest first
     return {"type": "bargauge", "title": title, "targets": [tgt(expr, "A", legend)],
+            "transformations": [{"id": "reduce", "options": {"reducers": ["lastNotNull"], "mode": "seriesToRows"}},
+                                {"id": "sortBy", "options": {"sort": [{"field": "Last *", "desc": True}]}}],
             "fieldConfig": {"defaults": {"unit": unit, "color": {"mode": color},
                                          "thresholds": {"mode": "percentage", "steps": [{"color": "green", "value": 0}]}}},
             "options": {"displayMode": display, "orientation": orientation, "namePlacement": name_placement,
                         "valueMode": "text", "showUnfilled": True, "sizing": "auto",
                         "legend": {"showLegend": False, "displayMode": "list", "placement": "bottom"},
-                        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False}}}
+                        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^Last/", "values": True}}}
 add(bargauge("Cost by model", joined(per_session("cost.usage", by="model"), by="model", labels="work_item"),
              "{{model}}", "currencyUSD", "horizontal", "continuous-BlPu", "gradient", "top"), 8, 8)
 add(bargauge("Tokens by type", joined(per_session("token.usage", by="type"), by="type", labels="work_item"),

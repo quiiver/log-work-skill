@@ -1134,6 +1134,28 @@
           "instant": true
         }
       ],
+      "transformations": [
+        {
+          "id": "reduce",
+          "options": {
+            "reducers": [
+              "lastNotNull"
+            ],
+            "mode": "seriesToRows"
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Last *",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
       "fieldConfig": {
         "defaults": {
           "unit": "currencyUSD",
@@ -1167,8 +1189,8 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "",
-          "values": false
+          "fields": "/^Last/",
+          "values": true
         }
       },
       "datasource": {
@@ -1197,6 +1219,28 @@
           "legendFormat": "{{type}}",
           "range": false,
           "instant": true
+        }
+      ],
+      "transformations": [
+        {
+          "id": "reduce",
+          "options": {
+            "reducers": [
+              "lastNotNull"
+            ],
+            "mode": "seriesToRows"
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Last *",
+                "desc": true
+              }
+            ]
+          }
         }
       ],
       "fieldConfig": {
@@ -1232,8 +1276,8 @@
           "calcs": [
             "lastNotNull"
           ],
-          "fields": "",
-          "values": false
+          "fields": "/^Last/",
+          "values": true
         }
       },
       "datasource": {
