@@ -125,6 +125,11 @@ for ref, name in [("K", "commit.count"), ("L", "pull_request.count")]:  # outcom
 # Clicking a work item filters this dashboard to it; ticket keys also get a Jira link.
 FILTER_URL = ("/d/claude-usage-work-item/claude-usage-by-work-item?var-work_item=${__data.fields.work_key}"
               "&${ds:queryparam}&${email:queryparam}&${model:queryparam}&${__url_time_range}")
+USER_URL = ("/d/claude-usage-work-item/claude-usage-by-work-item?var-email=${__value.raw}"
+            "&${ds:queryparam}&${work_item:queryparam}&${model:queryparam}&${__url_time_range}")
+# Cell "Filter for value" adds an ad hoc filter to every query, which these joins can't take
+# (native metrics have no work_item; INFO relabels it). The links above filter instead.
+NO_ADHOC = {"matcher": {"id": "byRegexp", "options": ".*"}, "properties": [{"id": "filterable", "value": False}]}
 rename = {f"Value #{c[0]}": c[1] for c in cols}
 rename.update({"Value #H": "Sessions", "Value #K": "Commits / session", "Value #L": "PRs / session"})
 rename.update({"work_item": "Work item", "work_title": "Title", "jira": "Jira", "user.email": "User"})
@@ -140,8 +145,11 @@ add({"type": "table", "title": "Usage by work item", "targets": targets,
              {"title": "Filter dashboard to this work item", "url": FILTER_URL}]}]},
          {"matcher": {"id": "byName", "options": "Jira"}, "properties": [{"id": "links", "value": [
              {"title": "Open in Jira", "url": "${jira_base}/${__value.raw}", "targetBlank": True}]}]},
+         {"matcher": {"id": "byName", "options": "User"}, "properties": [{"id": "links", "value": [
+             {"title": "Filter dashboard to this user", "url": USER_URL}]}]},
          # needed by the filter link, not shown
-         {"matcher": {"id": "byName", "options": "work_key"}, "properties": [{"id": "custom.hidden", "value": True}]}]},
+         {"matcher": {"id": "byName", "options": "work_key"}, "properties": [{"id": "custom.hidden", "value": True}]},
+         NO_ADHOC]},
      "options": {"showHeader": True}}, 24, 10)
 
 by_model = [("A", "Cost", per_session("cost.usage", by="model"))] + [
@@ -156,7 +164,7 @@ add({"type": "table", "title": "Cost and tokens by work item and model",
                              **{f"Value #{r}": n for r, n, _ in by_model}, "work_item": "Work item", "model": "Model"}}},
                          {"id": "sortBy", "options": {"sort": [{"field": "Cost", "desc": True}]}}],
      "fieldConfig": {"defaults": {"unit": "short", "decimals": 1}, "overrides": [
-         {"matcher": {"id": "byName", "options": "Cost"}, "properties": [{"id": "unit", "value": "currencyUSD"}, {"id": "decimals", "value": 2}]}]},
+         {"matcher": {"id": "byName", "options": "Cost"}, "properties": [{"id": "unit", "value": "currencyUSD"}, {"id": "decimals", "value": 2}]}, NO_ADHOC]},
      "options": {"showHeader": True}}, 24, 10)
 
 row("Trends")

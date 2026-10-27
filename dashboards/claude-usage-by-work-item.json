@@ -797,12 +797,41 @@
           {
             "matcher": {
               "id": "byName",
+              "options": "User"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Filter dashboard to this user",
+                    "url": "/d/claude-usage-work-item/claude-usage-by-work-item?var-email=${__value.raw}&${ds:queryparam}&${work_item:queryparam}&${model:queryparam}&${__url_time_range}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
               "options": "work_key"
             },
             "properties": [
               {
                 "id": "custom.hidden",
                 "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*"
+            },
+            "properties": [
+              {
+                "id": "filterable",
+                "value": false
               }
             ]
           }
@@ -942,6 +971,18 @@
               {
                 "id": "decimals",
                 "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*"
+            },
+            "properties": [
+              {
+                "id": "filterable",
+                "value": false
               }
             ]
           }
