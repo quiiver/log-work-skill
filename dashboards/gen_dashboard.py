@@ -10,9 +10,11 @@ DS = {"type": "prometheus", "uid": "${ds}"}
 # "WORKLOG: <work log entry title>" so each entry is its own row.
 _SEL = ('{"__name__"="log_work.session.info", work_item=~`${work_item:regex}`, '
         '"user.email"=~`${email:regex}`, work_item%s"WORKLOG"}')
-INFO = ('(0 * topk by ("session.id") (1, '
-        f'label_replace(last_over_time({_SEL % "="}[90d]), "work_item", "WORKLOG: $1", "work_title", "(.+)")'
-        f' or last_over_time({_SEL % "!="}[90d])) + 1)')
+_KEY = 'label_replace(last_over_time(%s[90d]), "work_key", "$1", "work_item", "(.*)")'  # raw key, for links
+JIRA_RE = "[A-Z][A-Z0-9]+-[0-9]+"
+INFO = ('(0 * label_replace(topk by ("session.id") (1, '
+        f'label_replace({_KEY % (_SEL % "=")}, "work_item", "WORKLOG: $1", "work_title", "(.+)")'
+        f' or {_KEY % (_SEL % "!=")}), "jira", "$1", "work_key", "({JIRA_RE})") + 1)')
 # Usage the log-work hook derives from transcripts (all session types, incl. desktop).
 # Native export reaches Google from desktop only with the shell-profile workaround, so
 # metrics both sources have use the larger per-session value (see best()).
@@ -114,23 +116,32 @@ cols = [("A", "Cost", per_session("cost.usage")),
         ("G", "PRs", per_session("pull_request.count")),
         ("I", "Turns", per_session("turns")),
         ("J", "Tool calls", per_session("tool_calls"))]
-targets = [tgt(joined(c[2], by="work_item, work_title") + (c[3] if len(c) > 3 else ""), c[0], fmt="table") for c in cols]
-SESSIONS = f'count by (work_item, work_title) ({per_session("cost.usage")} * on("session.id") group_left(work_item, work_title) {INFO})'
+KEYS = "work_item, work_title, work_key, jira"
+targets = [tgt(joined(c[2], by=KEYS, labels=KEYS) + (c[3] if len(c) > 3 else ""), c[0], fmt="table") for c in cols]
+SESSIONS = f'count by ({KEYS}) ({per_session("cost.usage")} * on("session.id") group_left({KEYS}) {INFO})'
 targets.append(tgt(SESSIONS, "H", fmt="table"))
 for ref, name in [("K", "commit.count"), ("L", "pull_request.count")]:  # outcomes per session
-    targets.append(tgt(f"{joined(per_session(name), by='work_item, work_title')} / {SESSIONS}", ref, fmt="table"))
+    targets.append(tgt(f"{joined(per_session(name), by=KEYS, labels=KEYS)} / {SESSIONS}", ref, fmt="table"))
+# Clicking a work item filters this dashboard to it; ticket keys also get a Jira link.
+FILTER_URL = ("/d/claude-usage-work-item/claude-usage-by-work-item?var-work_item=${__data.fields.work_key}"
+              "&${ds:queryparam}&${email:queryparam}&${model:queryparam}&${__url_time_range}")
 rename = {f"Value #{c[0]}": c[1] for c in cols}
 rename.update({"Value #H": "Sessions", "Value #K": "Commits / session", "Value #L": "PRs / session"})
-rename.update({"work_item": "Work item", "work_title": "Title"})
+rename.update({"work_item": "Work item", "work_title": "Title", "jira": "Jira"})
 add({"type": "table", "title": "Usage by work item", "targets": targets,
      "transformations": [{"id": "merge", "options": {}},
-                         {"id": "organize", "options": {"excludeByName": {"Time": True}, "renameByName": rename}},
+                         {"id": "organize", "options": {"excludeByName": {"Time": True}, "renameByName": rename,
+                                                        "indexByName": {"work_item": 0, "jira": 1, "work_title": 2}}},
                          {"id": "sortBy", "options": {"sort": [{"field": "Cost", "desc": True}]}}],
      "fieldConfig": {"defaults": {"decimals": 1}, "overrides": [
          {"matcher": {"id": "byName", "options": "Cost"}, "properties": [{"id": "unit", "value": "currencyUSD"}, {"id": "decimals", "value": 2}]},
          {"matcher": {"id": "byName", "options": "Tokens"}, "properties": [{"id": "unit", "value": "short"}]},
          {"matcher": {"id": "byName", "options": "Work item"}, "properties": [{"id": "links", "value": [
-             {"title": "Open in Jira", "url": "${jira_base}/${__value.raw}", "targetBlank": True}]}]}]},
+             {"title": "Filter dashboard to this work item", "url": FILTER_URL}]}]},
+         {"matcher": {"id": "byName", "options": "Jira"}, "properties": [{"id": "links", "value": [
+             {"title": "Open in Jira", "url": "${jira_base}/${__value.raw}", "targetBlank": True}]}]},
+         # needed by the filter link, not shown
+         {"matcher": {"id": "byName", "options": "work_key"}, "properties": [{"id": "custom.hidden", "value": True}]}]},
      "options": {"showHeader": True}}, 24, 10)
 
 by_model = [("A", "Cost", per_session("cost.usage", by="model"))] + [
@@ -157,22 +168,33 @@ def ts(title, expr, legend, unit="none", stack=True, interval="1d"):
             "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum"]}}}
 add(ts("Cost per day by work item", rate_joined("cost.usage"), "{{work_item}}", "currencyUSD"), 12, 8)
 add(ts("Claude hours per day by work item", f"({rate_joined('api_seconds')} + {rate_joined('tool_seconds')}) / 3600", "{{work_item}}"), 12, 8)
-add({"type": "piechart", "title": "Cost by model", "targets": [tgt(
-    joined(per_session("cost.usage", by="model"), by="model", labels="work_item"), "A", "{{model}}")],
-    "fieldConfig": {"defaults": {"unit": "currencyUSD"}, "overrides": []},
-    "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "legend": {"displayMode": "table", "placement": "right", "values": ["value", "percent"]}}}, 8, 8)
+def bargauge(title, expr, legend, unit, orientation, color, display, name_placement):
+    return {"type": "bargauge", "title": title, "targets": [tgt(expr, "A", legend)],
+            "fieldConfig": {"defaults": {"unit": unit, "color": {"mode": color},
+                                         "thresholds": {"mode": "percentage", "steps": [{"color": "green", "value": 0}]}}},
+            "options": {"displayMode": display, "orientation": orientation, "namePlacement": name_placement,
+                        "valueMode": "text", "showUnfilled": True, "sizing": "auto",
+                        "legend": {"showLegend": False, "displayMode": "list", "placement": "bottom"},
+                        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False}}}
+add(bargauge("Cost by model", joined(per_session("cost.usage", by="model"), by="model", labels="work_item"),
+             "{{model}}", "currencyUSD", "horizontal", "continuous-BlPu", "gradient", "top"), 8, 8)
+add(bargauge("Tokens by type", joined(per_session("token.usage", by="type"), by="type", labels="work_item"),
+             "{{type}}", "short", "vertical", "palette-classic", "basic", "auto"), 8, 8)
 add({"type": "piechart", "title": "Claude time: model vs tools", "targets": [
     tgt(f"sum({joined(per_session('api_seconds'))}) / 3600", "A", "model"),
     tgt(f"sum({joined(per_session('tool_seconds'))}) / 3600", "B", "tools")],
-    "fieldConfig": {"defaults": {"unit": "h"}, "overrides": []},
-    "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "legend": {"displayMode": "table", "placement": "right", "values": ["value", "percent"]}}}, 8, 8)
-add({"type": "piechart", "title": "Tokens by type", "targets": [tgt(
-    joined(per_session("token.usage", by="type"), by="type", labels="work_item"), "A", "{{type}}")],
-    "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
-    "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "legend": {"displayMode": "table", "placement": "right", "values": ["value", "percent"]}}}, 8, 8)
-add(stat("Cache-read share of input tokens",
+    "fieldConfig": {"defaults": {"unit": "h", "color": {"mode": "palette-classic"}}, "overrides": []},
+    "options": {"pieType": "donut", "displayLabels": ["percent"], "sort": "desc",
+                "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
+                "legend": {"showLegend": True, "displayMode": "list", "placement": "bottom"}}}, 4, 8)
+cache = stat("Cache-read share of input tokens",
     f'sum({joined(per_session("token.usage", CACHE))}) / sum({joined(per_session("token.usage", INPUTS))})',
-    "percentunit", 1), 8, 8)
+    "percentunit", 1)
+cache["fieldConfig"]["defaults"].update({"min": 0, "max": 1, "color": {"mode": "thresholds"}, "thresholds": {
+    "mode": "absolute", "steps": [{"color": "red", "value": 0}, {"color": "#EAB839", "value": 0.8},
+                                  {"color": "green", "value": 0.9}]}})
+cache["options"]["colorMode"] = "background"
+add(cache, 4, 8)
 
 _MODELS = 'label_values({"__name__"="log_work.usage.cost_usd"}, model)'
 _EMAILS = 'query_result(count by ("user.email") (last_over_time({"__name__"="log_work.session.info"}[90d])))'
