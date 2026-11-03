@@ -116,6 +116,11 @@ Used wherever a procedure below says "log the summary":
   (ticket key, `WORKLOG` or `unassigned`); this later one carries the
   entry title and wins, because queries keep the newest tag per session.
   A failure here is non-fatal: mention it in one line.
+- Each `WORKLOG` work item has its own id (`WORKLOG:<date>-<hex>`, the
+  `workItem` in state), so unticketed items don't lump together. Pass
+  `--work-item WORKLOG` as usual: emit-info swaps in the session's id and
+  publishes the entry title as that item's title. A new `set-ticket ... WORKLOG`
+  starts a new item, and a continuation in the same directory keeps the current one.
 - `set-ticket --title` publishes the ticket's Jira summary (`log_work.work_item.info`)
   as the dashboard's title for that work item; omit `--title` for `WORKLOG`. To
   set or fix one without retagging: `state.py set-title <ticketKey> "<Jira summary>"`.
