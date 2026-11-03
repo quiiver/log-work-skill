@@ -6,16 +6,16 @@ every PromQL expression against the data source (delete it afterwards).
 """
 import json, os, sys
 DS = {"type": "prometheus", "uid": "${ds}"}
-# Latest work-item tag per session. Unticketed work has its own id per work log
+# Latest work-item tag per session (as of the range end, so trends follow retags). Unticketed work has its own id per work log
 # entry (WORKLOG:<date>-<hex>, see state.py), titled like tickets via TITLES.
 _SEL = ('{"__name__"="log_work.session.info", work_item=~`${work_item:regex}`, '
         '"user.email"=~`${email:regex}`}')
-_KEY = 'label_replace(last_over_time(%s[90d]), "work_key", "$1", "work_item", "(.*)")'  # raw key, for links
+_KEY = 'label_replace(last_over_time(%s[90d] @ end()), "work_key", "$1", "work_item", "(.*)")'  # raw key, for links
 JIRA_RE = "[A-Z][A-Z0-9]+-[0-9]+"
 INFO = f'(0 * label_replace(topk by ("session.id") (1, {_KEY % _SEL}), "jira", "$1", "work_key", "({JIRA_RE})") + 1)'
 INFO = f'label_replace({INFO}, "work_title", "$1", "work_key", "(.+)")'  # until TITLES (below) has one
 # Latest title per work item (Jira summary), from state.py set-title / set-ticket --title.
-TITLES = ('topk by (work_key) (1, label_replace(last_over_time({"__name__"="log_work.work_item.info"}[90d]), '
+TITLES = ('topk by (work_key) (1, label_replace(last_over_time({"__name__"="log_work.work_item.info"}[90d] @ end()), '
           '"work_key", "$1", "work_item", "(.*)"))')
 def titled(e):
     """Table rows with the work item's title where one is published, else as they are."""
@@ -57,10 +57,10 @@ def per_session(name, extra="", by=""):
 INFO = f'({INFO} and on("session.id") ({_used_model()}))'  # Model filter applies to every panel
 def joined(inner, by="work_item", labels="work_item, work_title"):
     return f"sum by ({by}) ({inner} * on(\"session.id\") group_left({labels}) {INFO})"
-def rate_joined(name, extra="", by="work_item", inner_by=""):
+def rate_joined(name, extra="", by="work_item, work_key", inner_by=""):
     b = '"session.id"' + (f", {inner_by}" if inner_by else "")
     inner = best(lambda sel: f"sum by ({b}) (increase({sel}[$__interval]))", name, extra)
-    return f"sum by ({by}) ({inner} * on(\"session.id\") group_left(work_item) {INFO})"
+    return f"sum by ({by}) ({inner} * on(\"session.id\") group_left(work_item, work_key) {INFO})"
 
 def tgt(expr, ref, legend="", instant=True, fmt="time_series"):
     t = {"datasource": DS, "expr": expr, "refId": ref, "legendFormat": legend, "range": not instant, "instant": instant}
@@ -176,8 +176,10 @@ def ts(title, expr, legend, unit="none", stack=True, interval="1d"):
             "fieldConfig": {"defaults": {"unit": unit, "custom": {"drawStyle": "bars", "fillOpacity": 80,
                             "stacking": {"mode": "normal" if stack else "none"}}}, "overrides": []},
             "options": {"legend": {"displayMode": "table", "placement": "right", "calcs": ["sum"]}}}
-add(ts("Cost per day by work item", rate_joined("cost.usage"), "{{work_item}}", "currencyUSD"), 12, 8)
-add(ts("Claude hours per day by work item", f"({rate_joined('api_seconds')} + {rate_joined('tool_seconds')}) / 3600", "{{work_item}}"), 12, 8)
+# legend: work item and its published title (none for untitled items)
+TREND = "{{work_item}} {{work_title}}"
+add(ts("Cost per day by work item", titled(rate_joined("cost.usage")), TREND, "currencyUSD"), 12, 8)
+add(ts("Claude hours per day by work item", titled(f"({rate_joined('api_seconds')} + {rate_joined('tool_seconds')}) / 3600"), TREND), 12, 8)
 def bargauge(title, expr, legend, unit, orientation, color, display, name_placement):
     # one row per series, sorted by value, so bars run highest first
     return {"type": "bargauge", "title": title, "targets": [tgt(expr, "A", legend)],
