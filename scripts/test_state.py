@@ -196,6 +196,14 @@ class TestCLI(unittest.TestCase):
             self.assertEqual([r["event"] for r in rows], ["session-start", "set-ticket"])
             self.assertEqual({r["session_id"] for r in rows}, {"s-42"})
             self.assertEqual(rows[1]["ticketKey"], "WORKLOG")
+            self.assertRegex(rows[1]["workItem"], r"^WORKLOG:\d{4}-\d\d-\d\d-[0-9a-f]{4}$")
+            self.assertEqual(state.extract_ticket_keys(rows[1]["workItem"]), [])  # never a Jira key
+            self.assertEqual(state.ledger_work_item(state_path, "s-42"), rows[1]["workItem"])
+            # a later session in the same directory keeps the item; a new WORKLOG match gets a new one
+            self._run(state_path, "session-start", input_text=json.dumps({"cwd": d, "session_id": "s-43"}))
+            self.assertEqual(state.ledger_work_item(state_path, "s-43"), rows[1]["workItem"])
+            self._run(state_path, "set-ticket", d, "WORKLOG", "--session", "s-44")
+            self.assertNotEqual(state.ledger_work_item(state_path, "s-44"), rows[1]["workItem"])
 
     def test_already_tagged(self):
         with tempfile.TemporaryDirectory() as d:

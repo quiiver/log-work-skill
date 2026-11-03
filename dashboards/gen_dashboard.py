@@ -6,16 +6,14 @@ every PromQL expression against the data source (delete it afterwards).
 """
 import json, os, sys
 DS = {"type": "prometheus", "uid": "${ds}"}
-# Latest work-item tag per session. Unticketed (WORKLOG) sessions show as
-# "WORKLOG: <work log entry title>" so each entry is its own row.
+# Latest work-item tag per session. Unticketed work has its own id per work log
+# entry (WORKLOG:<date>-<hex>, see state.py), titled like tickets via TITLES.
 _SEL = ('{"__name__"="log_work.session.info", work_item=~`${work_item:regex}`, '
-        '"user.email"=~`${email:regex}`, work_item%s"WORKLOG"}')
+        '"user.email"=~`${email:regex}`}')
 _KEY = 'label_replace(last_over_time(%s[90d]), "work_key", "$1", "work_item", "(.*)")'  # raw key, for links
 JIRA_RE = "[A-Z][A-Z0-9]+-[0-9]+"
-INFO = ('(0 * label_replace(topk by ("session.id") (1, '
-        f'label_replace({_KEY % (_SEL % "=")}, "work_item", "WORKLOG: $1", "work_title", "(.+)")'
-        f' or {_KEY % (_SEL % "!=")}), "jira", "$1", "work_key", "({JIRA_RE})") + 1)')
-INFO = f'label_replace({INFO}, "work_title", "$1", "jira", "(.+)")'  # ticket rows: title from TITLES below
+INFO = f'(0 * label_replace(topk by ("session.id") (1, {_KEY % _SEL}), "jira", "$1", "work_key", "({JIRA_RE})") + 1)'
+INFO = f'label_replace({INFO}, "work_title", "$1", "work_key", "(.+)")'  # until TITLES (below) has one
 # Latest title per work item (Jira summary), from state.py set-title / set-ticket --title.
 TITLES = ('topk by (work_key) (1, label_replace(last_over_time({"__name__"="log_work.work_item.info"}[90d]), '
           '"work_key", "$1", "work_item", "(.*)"))')
@@ -96,9 +94,10 @@ def stat(title, expr, unit="none", decimals=None):
     return p
 
 row("Overview")
+UNASSIGNED = f"sum({per_session('cost.usage')} unless on(\"session.id\") last_over_time({{\"__name__\"=\"log_work.session.info\"}}[90d]))"
 for title, expr, unit, dec in [
     ("Cost (est.)", f"sum({joined(per_session('cost.usage'))})", "currencyUSD", 2),
-    ("Active hours (you, CLI only)", f"sum({joined(per_session('active_time.total', USER))}) / 3600", "none", 1),
+    ("Unassigned cost (no work item)", UNASSIGNED, "currencyUSD", 2),
     ("Claude hours (model + tools)", f"(sum({joined(per_session('api_seconds'))}) + sum({joined(per_session('tool_seconds'))})) / 3600", "none", 1),
     ("Sessions", f"sum(count by (work_item) ({per_session('cost.usage')} * on(\"session.id\") group_left(work_item) {INFO}))", "none", 0),
     ("Lines added", f"sum({joined(per_session('lines_of_code.count', ADDED))})", "none", 0),
@@ -107,12 +106,7 @@ for title, expr, unit, dec in [
     ("Tool calls", f"sum({joined(per_session('tool_calls'))})", "none", 0),
 ]:
     add(stat(title, expr, unit, dec), 3, 4)
-add({"type": "stat", "title": "Unassigned cost (no work item)", "targets": [tgt(
-    f"sum({per_session('cost.usage')} unless on(\"session.id\") last_over_time({{\"__name__\"=\"log_work.session.info\"}}[90d]))", "A")],
-    "fieldConfig": {"defaults": {"unit": "currencyUSD", "decimals": 2}, "overrides": []},
-    "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "none", "graphMode": "none"},
-    "description": "Sessions with usage but no log_work.session.info tag (log-work not tracking, or tag failed)."}, 24, 3)
-
+panels[2]["description"] = "Sessions with usage but no log_work.session.info tag (log-work not tracking, or tag failed)."
 row("By work item")
 cols = [("A", "Cost", per_session("cost.usage")),
         ("B", "Tokens", per_session("token.usage")),
@@ -153,9 +147,10 @@ add({"type": "table", "title": "Usage by work item", "targets": targets,
          {"matcher": {"id": "byName", "options": "Jira"}, "properties": [{"id": "links", "value": [
              {"title": "Open in Jira", "url": "${jira_base}/${__value.raw}", "targetBlank": True}]}]},
          {"matcher": {"id": "byName", "options": "User"}, "properties": [{"id": "links", "value": [
-             {"title": "Filter dashboard to this user", "url": USER_URL}]}]},
+             {"title": "Filter dashboard to this user", "url": USER_URL}]}, {"id": "custom.width", "value": 171}]},
+         {"matcher": {"id": "byName", "options": "Title"}, "properties": [{"id": "custom.width", "value": 587}]},
          # needed by the filter link, not shown
-         {"matcher": {"id": "byName", "options": "work_key"}, "properties": [{"id": "custom.hidden", "value": True}]},
+         {"matcher": {"id": "byName", "options": "work_key"}, "properties": [{"id": "custom.hideFrom.viz", "value": True}]},
          NO_ADHOC]},
      "options": {"showHeader": True}}, 24, 10)
 

@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import re
+import secrets
 import subprocess
 import socket
 import sys
@@ -46,9 +47,23 @@ def get_entry(state, cwd):
     return entry
 
 
+def new_worklog_id():
+    # One id per unticketed work item, so the dashboard doesn't lump them all under
+    # WORKLOG. No "-<digits>" suffix, so it never parses as a Jira key.
+    return f"WORKLOG:{time.strftime('%Y-%m-%d')}-{secrets.token_hex(2)}"
+
+
+def work_item_of(entry):
+    """The work item id sessions are tagged with: the ticket key, or a WORKLOG id."""
+    return entry.get("workItem") or entry["ticketKey"]
+
+
 def set_ticket(state, cwd, ticket_key, branch):
     entry = get_entry(state, cwd)
     entry["ticketKey"] = ticket_key
+    entry.pop("workItem", None)
+    if ticket_key == "WORKLOG":
+        entry["workItem"] = new_worklog_id()
     entry["branch"] = branch
     entry["pendingLog"] = True
     state[cwd] = entry
@@ -169,9 +184,26 @@ def already_tagged(state_path, session_id, ticket_key):
                     row = json.loads(line)
                 except ValueError:
                     continue
-                if row.get("session_id") == session_id and row.get("ticketKey") == ticket_key:
+                if row.get("session_id") == session_id and (row.get("workItem") or row.get("ticketKey")) == ticket_key:
                     return True
     return False
+
+
+def ledger_work_item(state_path, session_id):
+    """The latest WORKLOG id the ledger records for this session, if any."""
+    path = ledger_path(state_path)
+    found = None
+    if os.path.exists(path):
+        with open(path) as f:
+            for line in f:
+                if session_id in line:
+                    try:
+                        row = json.loads(line)
+                    except ValueError:
+                        continue
+                    if row.get("session_id") == session_id and str(row.get("workItem", "")).startswith("WORKLOG:"):
+                        found = row["workItem"]
+    return found
 
 
 def clear_ticket(state, cwd):
@@ -286,8 +318,8 @@ def cmd_set_ticket(args):
     if args.session:
         append_ledger(args.state_path, {"event": "set-ticket", "session_id": args.session,
                                         "cwd": args.cwd, "ticketKey": args.ticket_key,
-                                        "branch": args.branch})
-        emit_info_async(args.state_path, args.session, args.ticket_key,
+                                        "workItem": work_item_of(entry), "branch": args.branch})
+        emit_info_async(args.state_path, args.session, work_item_of(entry),
                         repo=os.path.basename(args.cwd.rstrip("/")))
     if args.title and get_config(state).get("otelEndpoint"):
         subprocess.Popen([sys.executable, os.path.abspath(__file__), "--state-path", args.state_path,
@@ -360,11 +392,16 @@ def cmd_emit_info(args):
     config = get_config(load_state(args.state_path))
     if not config.get("otelEndpoint"):
         sys.exit("emit-info: otelEndpoint not configured (see /log-work setup-otel)")
-    payload = info_payload(config, args.session, args.work_item, args.title, args.repo)
+    work_item = args.work_item
+    if work_item == "WORKLOG":  # the skill passes the sentinel; tag with this session's WORKLOG id
+        work_item = ledger_work_item(args.state_path, args.session) or work_item
+    payload = info_payload(config, args.session, work_item, args.title, args.repo)
     if args.dry_run:
         print(json.dumps(payload, indent=2))
         return
     print(send_info(config, payload))
+    if args.title and work_item.startswith("WORKLOG:"):  # the entry title is the work item's title
+        print(send_info(config, title_payload(config, work_item, args.title)))
 
 
 def wrap_context(text, fmt):
@@ -400,22 +437,28 @@ def cmd_session_start(args):
         k for k in extract_ticket_keys("\n".join(commits)) if k not in branch_keys
     ]
     session_id = payload.get("session_id")
+    if entry["ticketKey"] == "WORKLOG" and not entry.get("workItem"):  # state from before WORKLOG ids
+        entry["workItem"] = new_worklog_id()
+        state[cwd] = entry
+        save_state(args.state_path, state)
     if session_id and entry["tracked"]:
         # Re-tagging a resumed session would replace the work log entry title
         # sent at log time with the bare ticket key (newest tag wins).
-        tagged = already_tagged(args.state_path, session_id, entry["ticketKey"])
+        tagged = already_tagged(args.state_path, session_id, work_item_of(entry))
         append_ledger(args.state_path, {"event": "session-start", "session_id": session_id,
                                         "cwd": cwd, "source": payload.get("source"),
-                                        "ticketKey": entry["ticketKey"], "branch": branch})
+                                        "ticketKey": entry["ticketKey"], "workItem": work_item_of(entry),
+                                        "branch": branch})
         if not tagged:
-            emit_info_async(args.state_path, session_id, entry["ticketKey"] or "unassigned",
+            emit_info_async(args.state_path, session_id, work_item_of(entry) or "unassigned",
                             repo=os.path.basename(cwd.rstrip("/")))
 
     lines = [
         f"log-work skill — SessionStart for {cwd}",
         "",
         f'State: tracked={entry["tracked"]}, ticketKey={entry["ticketKey"] or "none"}, '
-        f'storedBranch={entry["branch"] or "none"}, pendingLog={entry["pendingLog"]}',
+        f'storedBranch={entry["branch"] or "none"}, pendingLog={entry["pendingLog"]}'
+        + (f', workItem={entry["workItem"]}' if entry.get("workItem") else ""),
         f"Session: {session_id or 'unknown'}",
         f"Git: isRepo={is_repo}, currentBranch={branch or 'n/a'}",
         f"Ticket keys found in branch name: {', '.join(branch_keys) or 'none'}",
