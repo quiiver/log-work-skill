@@ -1,6 +1,6 @@
 ---
 name: log-work
-description: Match, create, and log work against Jira tickets from Claude Code sessions, plus a private monthly Confluence work log for unticketed work. Also backfills the log from Jira comments, GitHub PRs and claude-mem history (`/log-work backfill`) and writes period reports such as quarterly reviews (`/log-work report Q3 2026`). Triggered automatically at the start of every session (via a SessionStart hook injecting context) to catch up any unlogged work from the previous session and resolve which ticket the current directory's work belongs to. Also invocable manually as `/log-work` to log the current conversation right now, or to force a rematch if the resolved ticket is wrong. The Jira project for new tickets is set on first run.
+description: Match, create, and log work against Jira tickets from Claude Code sessions, plus a private monthly Confluence work log for unticketed work. Also backfills the log from Jira comments, GitHub PRs and claude-mem history (`/log-work backfill`) and writes period reports such as quarterly reviews (`/log-work report Q3 2026`). Triggered automatically at the start of every new session (via a SessionStart hook injecting context) to ask which work item the session is for. Also invocable manually as `/log-work` to log the current conversation right now, or to change the session's work item if it is wrong. The Jira project for new tickets is set on first run.
 ---
 
 # log-work
@@ -10,9 +10,9 @@ description: Match, create, and log work against Jira tickets from Claude Code s
 1. **Automatically at session start.** A `SessionStart` hook runs
    `state.py session-start` and injects a context block starting with
    `log-work skill — SessionStart for <cwd>`, ending with an
-   `ACTION REQUIRED` line. When you see that block, follow the
-   **Session-start procedure** below *before* addressing the user's first
-   message.
+   `ACTION REQUIRED` line (only when the session has no work item yet).
+   When you see that line, follow the **Session-start procedure** below
+   *before* addressing the user's first message.
 2. **Manually via `/log-work`.** Follow the **Manual procedure** below.
    If invoked with `args: "session-start"` (only the hook does this),
    treat it as case 1.
@@ -67,9 +67,8 @@ few monthly pages instead of crawling Jira comments.
   `contentType: "folder"`, `private: true` at the space root. If the month
   page is missing, create it under the folder (`parentContentId`) with
   `private: true` too (belt and braces; the folder restriction inherits).
-- **Sentinel:** `ticketKey = WORKLOG` in state means "this directory's work
-  has no ticket; log to Confluence only". Skip Jira calls, status bumps and
-  branch creation for it.
+- **No ticket:** a session whose work item is a `WORKLOG:<date>-<hex>` id
+  has no ticket: log it to Confluence only and skip Jira calls.
 - **Appending:** `getConfluenceContent` with `detail: "full"`,
   `content_format: "markdown"` (the pages are plain markdown), then
   `updateConfluenceContent` with the full body, the new entry inserted
@@ -83,10 +82,10 @@ few monthly pages instead of crawling Jira comments.
   user asking.
 - **Entry format** (one `<h3>` per entry):
   - Heading: `YYYY-MM-DD — <short title>` (append ` — <TICKET-KEY>` for ticketed work)
-  - **Category:** one of support, incident, tooling, docs, review, mentoring, investigation, meeting, other
+  - **Category:** one of support, incident, tooling, docs, review, mentoring, investigation, meeting, other (maps to a work type, see **Work type**)
   - **What / outcome:** 1–3 lines; lead with the outcome
   - **Impact / who benefited:** team, tenant or `app_code`, if known
-  - **Effort:** S / M / L
+  - **Size:** S / M / L / XL (see **Sizing** below)
   - **Links:** PRs, Slack threads, Confluence pages, ticket URL
   - **Status:** done / ongoing / handed off / abandoned
   - For ticketed work, keep it to heading + Category + one-line outcome +
@@ -97,143 +96,97 @@ few monthly pages instead of crawling Jira comments.
 - Before posting a Jira comment, read existing comments on the ticket and only post what is new. Keep updates minimal and avoid repeating per-session comments.
 - Add only one Confluence work-log entry per session.
 - Confirm with the user before writing to Confluence when the task was described as read-only.
-- No ticket never means no log. If a session's work has no ticket, or
-  matching was skipped or never resolved (no state entry, hook ignored
-  mid-task), log it to the work log as `WORKLOG`. Only skip sessions with
+- No ticket never means no log. If a session has no work item (the question
+  was skipped or never asked), set one when logging (**Manual procedure**);
+  unticketed work goes to the work log as `WORKLOG`. Only skip sessions with
   no work in them (tab cleanups, one-off lookups, statusline tweaks).
 
 ### Logging a summary
 
-Used wherever a procedure below says "log the summary":
+Used wherever a procedure below says "log the summary". The session's work
+item is `state.py item <Session id>` (a Jira key, or a `WORKLOG:<date>-<hex>` id):
 
-- `ticketKey` is a real Jira key → `addCommentToJiraIssue` with the summary,
-  **and** append a short ticketed entry to this month's work log page.
-- `ticketKey = WORKLOG` → append a full entry to this month's work log page.
+- A Jira key → `addCommentToJiraIssue` with the summary, **and** append a
+  short ticketed entry to this month's work log page.
+- A `WORKLOG:` id → append a full entry to this month's work log page.
 - Either way, if OTel is set up (`otelEndpoint` in config), tag the session
   with the entry so dashboards can group usage by work item:
-  `state.py emit-info --session <Session id> --work-item <ticketKey> --title "<entry title>" --repo <basename of cwd>`.
-  Session start and `set-ticket --session` already send a coarse tag
-  (ticket key, `WORKLOG` or `unassigned`); this later one carries the
-  entry title and wins, because queries keep the newest tag per session.
+  `state.py emit-info --session <Session id> --title "<entry title>" --repo <basename of cwd>`
+  (the work item defaults to the session's). `set-item` already sent a
+  coarse tag; this one carries the entry title and wins, because queries
+  keep the newest tag per session. For `WORKLOG:` items it also publishes
+  the entry title as the item's title.
+  Add `--size <S|M|L|XL>` and `--type <build|fix|investigate|other>` (see **Sizing**, **Work type**) for `WORKLOG` items; for tickets run `set-title <ticket> "<Jira summary>" --size <size> --type <type>`.
   A failure here is non-fatal: mention it in one line.
-- Each `WORKLOG` work item has its own id (`WORKLOG:<date>-<hex>`, the
-  `workItem` in state), so unticketed items don't lump together. Pass
-  `--work-item WORKLOG` as usual: emit-info swaps in the session's id and
-  publishes the entry title as that item's title. A new `set-ticket ... WORKLOG`
-  starts a new item, and a continuation in the same directory keeps the current one.
-- `set-ticket --title` publishes the ticket's Jira summary (`log_work.work_item.info`)
+- `set-item --title` publishes the ticket's Jira summary (`log_work.work_item.info`)
   as the dashboard's title for that work item; omit `--title` for `WORKLOG`. To
-  set or fix one without retagging: `state.py set-title <ticketKey> "<Jira summary>"`.
+  set or fix one without retagging: `state.py set-title <ticket> "<Jira summary>"`.
+
+## Sizing
+
+Every logged work item gets a **size**: S, M, L or XL. Dashboards compare
+cost and turns within a size, so a hard item isn't read as an inefficient one.
+(Not "effort": that collides with the model's thinking effort.)
+
+**Size the work, not the session.** Judge what the work involved, never how
+long it took or what it cost, or size just restates cost.
+
+| Size | What it looks like |
+|---|---|
+| S | One change in one place, obvious approach: a quick fix, config tweak, small doc edit |
+| M | A few related changes in one system; clear after a little reading |
+| L | Several files or systems, or real investigation or design before the change |
+| XL | Crosses systems or teams, significant unknowns, or multiple PRs or days of work |
+
+- Between two sizes: pick the larger if there were real unknowns, else the smaller.
+- Size the outcome that landed. An investigation with no code change still gets a size, by how much had to be understood.
+- Set it when writing the entry, from the session's content, not after looking at cost.
+- Re-size only if the scope changed (a work item that grows across sessions is updated once, not re-rated per session).
+- Publish it on the work item's info metric, always with the title: `emit-info --size` for `WORKLOG` items (it sends the entry title), and `state.py set-title <work item> "<Jira summary>" --size <size>` for tickets or to re-size later.
+
+## Work type
+
+Every logged work item also gets a **type**, so dashboards judge output by what the
+work should produce: investigation and support rarely end in commits, so commit-based
+metrics only apply to build and fix. It comes from the entry's Category:
+
+| Type | Categories | Expect |
+|---|---|---|
+| build | tooling, docs | commits and PRs |
+| fix | incident (or a bug ticket) | commits and PRs |
+| investigate | investigation, support, mentoring, review | few or no commits |
+| other | meeting, other | no commits |
+
+Pass it with the size: `emit-info --type <type>` for `WORKLOG` items, and
+`set-title <work item> "<Jira summary>" --size <size> --type <type>` for tickets.
+A Bug issue type is a fix even if the Category says tooling.
 
 ## Session-start procedure
 
-The injected context block already tells you: `tracked`, `ticketKey`,
-`storedBranch`, `pendingLog`, `isRepo`, `currentBranch`, and any ticket keys
-found in the branch name / recent commits. Use it instead of re-deriving
-this yourself.
+A session's work item is chosen once, by the user, at the start of the
+session. Nothing is inherited from the directory or guessed from the branch:
+the branch and recent items are only suggestions. Resumed and compacted
+sessions keep their item (the hook says so and asks nothing).
 
-1. **Opted out?** If `tracked=False`, do nothing further for this skill —
-   don't run any of the steps below, don't mention it unless asked.
-2. **Catch up pending work.** If `pendingLog=True`, there's an
-   already-resolved `ticketKey` from a previous session that never got
-   logged:
-   - Write a short, honest summary of what happened in that previous
-     session using only what you actually have visibility into — recent
-     conversation history if this session was resumed/continued, or
-     `git log`/`git status` activity in the directory if it's a git repo.
-     Don't invent specifics you can't support; if there's nothing concrete
-     to go on, use a brief generic note like "Session resumed; prior work
-     not fully reconstructable."
-   - Log that summary (see **Logging a summary**) against the stored
-     `ticketKey`.
-   - Run `state.py set-pending <cwd> false`.
-3. **Decide continuation.**
-   - If `ticketKey` is set, and either `isRepo=False` or
-     `currentBranch == storedBranch`, this is a continuation: skip
-     matching, keep using `ticketKey`, and run
-     `state.py set-pending <cwd> true` (this session's work needs to be
-     caught up next time, same as freshly-matched work would). Go to
-     step 5.
-   - Otherwise, run the **Matching procedure** below to resolve a
-     `ticketKey`.
-4. Once matching resolves a `ticketKey` (found, confirmed, or newly
-   created), run `state.py set-ticket <cwd> <ticketKey> --branch <currentBranch-or-empty> --session <Session id from the SessionStart context> --title "<Jira summary>"`
-   (pass `--branch` with the current git branch name for git repos; omit
-   `--branch` entirely for non-git directories — same rule as the manual
-   procedure uses).
-5. **Status bump (best-effort; skip for `WORKLOG`).** Call `getJiraIssue` on `ticketKey` and
-   check its status's `statusCategory`. If the category is "To Do" (not
-   "In Progress" or "Done"), call `getTransitionsForJiraIssue` and, if
-   exactly one available transition's target status has category
-   "In Progress", call `transitionJiraIssue` to apply it. If there are zero
-   or multiple such candidates, skip silently — don't ask the user, don't
-   report failure.
-6. Don't announce any of this verbosely to the user — a brief one-line
-   mention (e.g. "Logged last session to PROJ-42, continuing on it") is
-   enough. If nothing needed doing (already a continuation, nothing
-   pending), say nothing at all.
-
-## Matching procedure
-
-Only runs when session-start step 3, the manual procedure's default
-flow (when there's no `ticketKey` yet), or the manual "force rematch"
-flow needs a ticket resolved.
-
-1. **Git branch key check** (git repos only — skip entirely for non-git
-   directories): the hook context lists ticket keys found in the branch
-   name separately from keys found in recent commits. If the branch name
-   contains exactly one ticket key, call `getJiraIssue` to verify it
-   resolves — that's the strongest signal, and it doesn't need to agree
-   with commit messages. If it does, that's the ticket — done. If the
-   branch has zero or more than one key, fall through to step 2.
-2. **JQL keyword search** (non-git directories, or git repos where step 1
-   found nothing or multiple different keys): derive 2-4 keywords from the
-   directory's basename and whatever the user has said about the task so
-   far this session (check the directory for a `README.md` title line
-   too, if present). Call `searchJiraIssuesUsingJql` with:
-   `project = <jiraProject> AND assignee = currentUser() AND statusCategory != Done AND text ~ "<keywords>"`
-   If that returns nothing, retry with just
-   `project = <jiraProject> AND assignee = currentUser() AND statusCategory != Done`
-   and rank by textual similarity yourself.
-3. **Disambiguate with the user.** Use `AskUserQuestion` with the
-   candidates you found (ticket key + summary each, up to 2) plus these two
-   options, always present:
-   - **Create a new <jiraProject> ticket** → step 4.
-   - **Log to Confluence work log only** → `ticketKey = WORKLOG`; return to
-     the calling step (skip step 5).
-   If more than 2 plausible candidates exist, list the extras in the
-   question text so the user can pick one via "Other".
-4. **Create new ticket** only if the user picks that option. Draft a summary and description from
-   the session's context, propose them to the user, and only after they
-   confirm, call `createJiraIssue` with `project: "<jiraProject>"`, `issueType: "Task"`.
-   Then resolve the current user's account id (`atlassianUserInfo`, or
-   `lookupJiraAccountId` if you need to look up by email) and assign the
-   new ticket to them via `editJiraIssue`.
-5. **Ensure a ticket branch** (git repos only — skip entirely for
-   non-git directories and for `WORKLOG`). Determine whether the current branch already
-   represents `ticketKey`: run `git -C <cwd> rev-parse --abbrev-ref HEAD`
-   to get the current branch name, pipe it into `state.py extract-keys`
-   to get the exact ticket keys it contains, and check whether
-   `ticketKey` is exactly one of them — don't use a plain substring check
-   (`PROJ-9` is a substring of `PROJ-90`, which would wrongly treat two
-   different tickets' branches as the same). If `ticketKey` isn't among
-   the extracted keys (true whenever the match came from step 2, 3, or 4
-   — step 1 by definition already satisfies this), create and switch to
-   a new branch before returning to whichever step called this
-   procedure. From this point forward, "the current branch" means the
-   new branch:
-   - Get `<user>`: run `state.py git-username <cwd>`. If it prints nothing
-     (no git identity configured), ask the user what to use instead of
-     guessing.
-   - Get `<ctx>`: if you don't already have the ticket's summary, fetch it
-     via `getJiraIssue`, then pipe it into `state.py slugify` (reads text
-     from stdin, prints a short kebab-case slug) to get `<ctx>`.
-   - Run `git -C <cwd> checkout -b <user>/<ticketKey>-<ctx>`.
-   - If that fails (name collision, uncommitted changes that would be
-     overwritten), try `git -C <cwd> checkout <user>/<ticketKey>-<ctx>` to
-     switch to an existing branch of that name instead. If that also
-     fails, tell the user briefly and continue the rest of the procedure
-     on the current branch — never force a destructive checkout.
+1. If the context says tracking is off, or the session already has a work
+   item, do nothing and say nothing.
+2. **Gather up to 2 suggestions**, best first:
+   - the ticket key in the branch name, if there is exactly one (the context lists it);
+   - one JQL search on 2-4 keywords from the user's first message:
+     `project = <jiraProject> AND assignee = currentUser() AND statusCategory != Done AND text ~ "<keywords>"`;
+   - the context's recent work items, when the first message points at one.
+   Get each ticket's summary with the search or `getJiraIssue`. Don't spend more calls than that.
+3. **Ask** with `AskUserQuestion` (header `Work item`): the suggestions
+   (`<KEY> <summary>`), plus always **New <jiraProject> ticket** and
+   **Work log only (no ticket)**. List other plausible keys in the question
+   text; the user can type any key via "Other".
+4. **Set it:** `state.py set-item <Session id> <KEY or WORKLOG> --cwd <cwd> --title "<Jira summary>"`
+   (no `--title` for `WORKLOG`; that gets a new `WORKLOG:<date>-<hex>` id).
+   For a new ticket, draft a summary and description from the first message,
+   confirm them with the user, `createJiraIssue` (`project: "<jiraProject>"`,
+   `issueType: "Task"`), assign it to `<accountId>` with `editJiraIssue`, then set it.
+5. Then get on with the user's request. One short line at most ("Tracking
+   this session as MZCLD-42").
 
 ## Manual procedure (`/log-work`)
 
@@ -246,23 +199,13 @@ the same message):
 
 1. Summarize what's happened in the current conversation so far (what was
    worked on, key decisions, outcome so far).
-2. Check `state.py get <cwd>`. If there's no `ticketKey` yet, run the
-   **Matching procedure** to resolve one, then run
-   `state.py set-ticket <cwd> <ticketKey> --branch <currentBranch-or-empty> --session <Session id from the SessionStart context> --title "<Jira summary>"`
-   (pass `--branch` with the current git branch name for git repos; omit
-   `--branch` entirely for non-git directories).
-3. Log the summary (see **Logging a summary**) against the resolved
-   `ticketKey`.
-4. Run `state.py set-pending <cwd> false`.
+2. If `state.py item <Session id>` prints nothing, ask and set the work item
+   (**Session-start procedure** steps 2-4, with the conversation as the hint).
+3. Log the summary (see **Logging a summary**).
 
-If the user instead says the resolved ticket is wrong (e.g. "wrong
-ticket", "that's not it"):
-
-1. Run `state.py clear <cwd>`.
-2. Run the **Matching procedure** to resolve a new `ticketKey`.
-3. Run `state.py set-ticket <cwd> <ticketKey> --branch <currentBranch-or-empty> --session <Session id from the SessionStart context> --title "<Jira summary>"`
-   (pass `--branch` with the current git branch name for git repos; omit
-   `--branch` entirely for non-git directories).
+If the user says the work item is wrong ("wrong ticket", "this is really
+MZCLD-9"): ask or take the new one and run `set-item` again. The newest
+item wins; re-send the log tag with `emit-info` if the session was already logged.
 
 ## Backfill procedure (`/log-work backfill <since>`)
 
@@ -541,5 +484,5 @@ tracking stays off until the user explicitly asks to resume it (e.g.
 If any Atlassian MCP call fails (auth, network, not found), tell the user
 briefly what failed and continue the session normally — never block the
 user's actual request on a Jira or Confluence error. If the Jira comment
-succeeds but the work log append fails (or vice versa), still clear
-`pendingLog`; mention the half that failed.
+succeeds but the work log append fails (or vice versa), mention the half
+that failed.

@@ -32,13 +32,8 @@ def save_state(path, state):
 
 
 def default_entry():
-    return {
-        "ticketKey": None,
-        "branch": None,
-        "lastLoggedSessionId": None,
-        "pendingLog": False,
-        "tracked": True,
-    }
+    # Per-directory state is only the opt-out; work items belong to sessions (ledger).
+    return {"tracked": True}
 
 
 def get_entry(state, cwd):
@@ -53,30 +48,6 @@ def new_worklog_id():
     return f"WORKLOG:{time.strftime('%Y-%m-%d')}-{secrets.token_hex(2)}"
 
 
-def work_item_of(entry):
-    """The work item id sessions are tagged with: the ticket key, or a WORKLOG id."""
-    return entry.get("workItem") or entry["ticketKey"]
-
-
-def set_ticket(state, cwd, ticket_key, branch):
-    entry = get_entry(state, cwd)
-    entry["ticketKey"] = ticket_key
-    entry.pop("workItem", None)
-    if ticket_key == "WORKLOG":
-        entry["workItem"] = new_worklog_id()
-    entry["branch"] = branch
-    entry["pendingLog"] = True
-    state[cwd] = entry
-    return entry
-
-
-def set_pending(state, cwd, pending):
-    entry = get_entry(state, cwd)
-    entry["pendingLog"] = pending
-    state[cwd] = entry
-    return entry
-
-
 def set_tracked(state, cwd, tracked):
     entry = get_entry(state, cwd)
     entry["tracked"] = tracked
@@ -84,16 +55,52 @@ def set_tracked(state, cwd, tracked):
     return entry
 
 
-def set_last_logged_session(state, cwd, session_id):
-    entry = get_entry(state, cwd)
-    entry["lastLoggedSessionId"] = session_id
-    state[cwd] = entry
-    return entry
-
-
 def ledger_path(state_path):
     # Session -> work item history, joined to Claude Code OTel data on session.id.
     return os.path.join(os.path.dirname(state_path), "log-work-sessions.jsonl")
+
+
+# Ledger events that set a session's work item (backfill-worklog-id: one-off migration).
+ITEM_EVENTS = ("set-item", "set-ticket", "backfill-worklog-id")
+
+
+def _ledger_rows(state_path):
+    path = ledger_path(state_path)
+    if not os.path.exists(path):
+        return []
+    rows = []
+    with open(path) as f:
+        for line in f:
+            try:
+                rows.append(json.loads(line))
+            except ValueError:
+                continue
+    return rows
+
+
+def _item(row):
+    return row.get("workItem") or row.get("ticketKey") if row.get("event") in ITEM_EVENTS else None
+
+
+def session_item(state_path, session_id):
+    """The work item last set for this session, or None. Never inherited from the directory."""
+    found = None
+    for row in _ledger_rows(state_path):
+        if row.get("session_id") == session_id and _item(row):
+            found = _item(row)
+    return found
+
+
+def recent_items(state_path, n=4):
+    """Distinct work items set most recently, newest first (hints for the session-start question)."""
+    out = []
+    for row in reversed(_ledger_rows(state_path)):
+        item = _item(row)
+        if item and item not in ("unassigned", "WORKLOG") and item not in out:
+            out.append(item)
+            if len(out) == n:
+                break
+    return out
 
 
 def append_ledger(state_path, record):
@@ -121,13 +128,20 @@ def info_payload(config, session_id, work_item, title="", repo="", now_ns=None):
     return otlp_metrics(config, [{"name": "log_work.session.info", "gauge": {"dataPoints": [point]}}])
 
 
-def title_payload(config, work_item, title, now_ns=None):
-    """OTLP/JSON gauge `log_work.work_item.info`: a work item's title (Jira summary).
-    The value is the set time, so queries keep the latest title per work item."""
+def title_payload(config, work_item, title, size="", work_type="", now_ns=None):
+    """OTLP/JSON gauge `log_work.work_item.info`: a work item's title (Jira summary)
+    and, when set, its S/M/L/XL size (`work_size`) and type (`work_type`). The value is the set time, so
+    queries keep the latest per work item. A new metric name for size never loaded
+    in Quick's metrics proxy, so size rides on this one: always send the title with it."""
     now_ns = now_ns or time.time_ns()
     point = {"asInt": str(now_ns // 1_000_000_000), "timeUnixNano": str(now_ns),
-             "attributes": [attr("work_item", work_item), attr("work_title", title)]}
+             "attributes": [attr("work_item", work_item), attr("work_title", title)]
+             + ([attr("work_size", size)] if size else []) + ([attr("work_type", work_type)] if work_type else [])}
     return otlp_metrics(config, [{"name": "log_work.work_item.info", "gauge": {"dataPoints": [point]}}])
+
+
+SIZES = ("S", "M", "L", "XL")
+TYPES = ("build", "fix", "investigate", "other")
 
 
 def attr(key, value):
@@ -172,49 +186,6 @@ def emit_info_async(state_path, session_id, work_item, title="", repo=""):
     )
 
 
-def already_tagged(state_path, session_id, ticket_key):
-    """True if the ledger already records this session under this ticket."""
-    path = ledger_path(state_path)
-    if not os.path.exists(path):
-        return False
-    with open(path) as f:
-        for line in f:
-            if session_id in line:
-                try:
-                    row = json.loads(line)
-                except ValueError:
-                    continue
-                if row.get("session_id") == session_id and (row.get("workItem") or row.get("ticketKey")) == ticket_key:
-                    return True
-    return False
-
-
-def ledger_work_item(state_path, session_id):
-    """The latest WORKLOG id the ledger records for this session, if any."""
-    path = ledger_path(state_path)
-    found = None
-    if os.path.exists(path):
-        with open(path) as f:
-            for line in f:
-                if session_id in line:
-                    try:
-                        row = json.loads(line)
-                    except ValueError:
-                        continue
-                    if row.get("session_id") == session_id and str(row.get("workItem", "")).startswith("WORKLOG:"):
-                        found = row["workItem"]
-    return found
-
-
-def clear_ticket(state, cwd):
-    entry = get_entry(state, cwd)
-    entry["ticketKey"] = None
-    entry["branch"] = None
-    entry["pendingLog"] = False
-    state[cwd] = entry
-    return entry
-
-
 # Per-user settings (Jira project, Atlassian/Confluence/GitHub IDs) live in the
 # state file under a reserved key; real entries are keyed by absolute paths.
 CONFIG_KEY = "__config__"
@@ -242,40 +213,6 @@ def extract_ticket_keys(text):
     return seen
 
 
-def _slugify(text):
-    text = (text or "").lower()
-    text = re.sub(r"[^a-z0-9]+", "-", text)
-    return text.strip("-")
-
-
-def slugify_summary(text, max_words=5, max_len=40):
-    words = re.findall(r"[a-zA-Z0-9]+", (text or "").lower())
-    slug = "-".join(words[:max_words])
-    return slug[:max_len].rstrip("-")
-
-
-def git_username(cwd):
-    result = subprocess.run(
-        ["git", "-C", cwd, "config", "user.email"],
-        capture_output=True,
-        text=True,
-    )
-    email = result.stdout.strip() if result.returncode == 0 else ""
-    if email and "@" in email:
-        return _slugify(email.split("@", 1)[0])
-
-    result = subprocess.run(
-        ["git", "-C", cwd, "config", "user.name"],
-        capture_output=True,
-        text=True,
-    )
-    name = result.stdout.strip() if result.returncode == 0 else ""
-    if name:
-        return _slugify(name)
-
-    return ""
-
-
 def git_current_branch(cwd):
     result = subprocess.run(
         ["git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"],
@@ -287,17 +224,6 @@ def git_current_branch(cwd):
     return result.stdout.strip()
 
 
-def git_recent_commit_subjects(cwd, count=20):
-    result = subprocess.run(
-        ["git", "-C", cwd, "log", f"-{count}", "--pretty=%s"],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        return []
-    return [line for line in result.stdout.splitlines() if line]
-
-
 def _parse_bool(value):
     if value.lower() in ("true", "1", "yes"):
         return True
@@ -306,41 +232,30 @@ def _parse_bool(value):
     raise argparse.ArgumentTypeError(f"expected true/false, got {value!r}")
 
 
-def cmd_get(args):
+def cmd_set_item(args):
+    """Set this session's work item: a ticket key, or WORKLOG (gets a new WORKLOG:<date>-<hex> id)."""
     state = load_state(args.state_path)
-    print(json.dumps(get_entry(state, args.cwd)))
-
-
-def cmd_set_ticket(args):
-    state = load_state(args.state_path)
-    entry = set_ticket(state, args.cwd, args.ticket_key, args.branch)
-    save_state(args.state_path, state)
-    if args.session:
-        append_ledger(args.state_path, {"event": "set-ticket", "session_id": args.session,
-                                        "cwd": args.cwd, "ticketKey": args.ticket_key,
-                                        "workItem": work_item_of(entry), "branch": args.branch})
-        emit_info_async(args.state_path, args.session, work_item_of(entry),
-                        repo=os.path.basename(args.cwd.rstrip("/")))
+    item = new_worklog_id() if args.work_item == "WORKLOG" else args.work_item
+    append_ledger(args.state_path, {"event": "set-item", "session_id": args.session, "cwd": args.cwd,
+                                    "workItem": item, "branch": git_current_branch(args.cwd)})
+    emit_info_async(args.state_path, args.session, item, repo=os.path.basename(args.cwd.rstrip("/")))
     if args.title and get_config(state).get("otelEndpoint"):
         subprocess.Popen([sys.executable, os.path.abspath(__file__), "--state-path", args.state_path,
-                          "set-title", args.ticket_key, args.title],
+                          "set-title", item, args.title],
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                          start_new_session=True)
-    print(json.dumps(entry))
+    print(item)
+
+
+def cmd_item(args):
+    print(session_item(args.state_path, args.session) or "")
 
 
 def cmd_set_title(args):
     config = get_config(load_state(args.state_path))
     if not config.get("otelEndpoint"):
         sys.exit("set-title: otelEndpoint not configured (see /log-work setup-otel)")
-    print(send_info(config, title_payload(config, args.work_item, args.title)))
-
-
-def cmd_set_pending(args):
-    state = load_state(args.state_path)
-    entry = set_pending(state, args.cwd, args.value)
-    save_state(args.state_path, state)
-    print(json.dumps(entry))
+    print(send_info(config, title_payload(config, args.work_item, args.title, args.size, args.type)))
 
 
 def cmd_set_tracked(args):
@@ -348,34 +263,6 @@ def cmd_set_tracked(args):
     entry = set_tracked(state, args.cwd, args.value)
     save_state(args.state_path, state)
     print(json.dumps(entry))
-
-
-def cmd_set_last_logged_session(args):
-    state = load_state(args.state_path)
-    entry = set_last_logged_session(state, args.cwd, args.session_id)
-    save_state(args.state_path, state)
-    print(json.dumps(entry))
-
-
-def cmd_clear(args):
-    state = load_state(args.state_path)
-    entry = clear_ticket(state, args.cwd)
-    save_state(args.state_path, state)
-    print(json.dumps(entry))
-
-
-def cmd_extract_keys(args):
-    text = sys.stdin.read()
-    print(json.dumps(extract_ticket_keys(text)))
-
-
-def cmd_git_username(args):
-    print(git_username(args.cwd))
-
-
-def cmd_slugify(args):
-    text = sys.stdin.read()
-    print(slugify_summary(text))
 
 
 def cmd_config(args):
@@ -393,15 +280,19 @@ def cmd_emit_info(args):
     if not config.get("otelEndpoint"):
         sys.exit("emit-info: otelEndpoint not configured (see /log-work setup-otel)")
     work_item = args.work_item
-    if work_item == "WORKLOG":  # the skill passes the sentinel; tag with this session's WORKLOG id
-        work_item = ledger_work_item(args.state_path, args.session) or work_item
+    if not work_item or work_item == "WORKLOG":  # default: the item set for this session
+        work_item = session_item(args.state_path, args.session) or work_item
+    if not work_item:
+        sys.exit("emit-info: no work item set for this session (state.py set-item)")
     payload = info_payload(config, args.session, work_item, args.title, args.repo)
     if args.dry_run:
         print(json.dumps(payload, indent=2))
         return
     print(send_info(config, payload))
     if args.title and work_item.startswith("WORKLOG:"):  # the entry title is the work item's title
-        print(send_info(config, title_payload(config, work_item, args.title)))
+        print(send_info(config, title_payload(config, work_item, args.title, args.size, args.type)))
+    elif args.size or args.type:
+        print("emit-info: --size/--type need a WORKLOG item; for tickets run set-title <ticket> <Jira summary> --size/--type", file=sys.stderr)
 
 
 def wrap_context(text, fmt):
@@ -426,49 +317,35 @@ def cmd_session_start(args):
     # Harnesses that don't send cwd on stdin run the hook in the session's directory.
     cwd = payload.get("cwd") or os.getcwd()
     state = load_state(args.state_path)
-    entry = get_entry(state, cwd)
     config = get_config(state)
+    session_id = payload.get("session_id")
+    head = f"log-work skill — SessionStart for {cwd}"
+    if not get_entry(state, cwd)["tracked"]:
+        print(wrap_context(f"{head}\n\nTracking is off for this directory: do nothing.", args.format))
+        return
 
     branch = git_current_branch(cwd)
-    is_repo = branch is not None
-    commits = git_recent_commit_subjects(cwd) if is_repo else []
-    branch_keys = extract_ticket_keys(branch or "")
-    commit_keys = [
-        k for k in extract_ticket_keys("\n".join(commits)) if k not in branch_keys
-    ]
-    session_id = payload.get("session_id")
-    if entry["ticketKey"] == "WORKLOG" and not entry.get("workItem"):  # state from before WORKLOG ids
-        entry["workItem"] = new_worklog_id()
-        state[cwd] = entry
-        save_state(args.state_path, state)
-    if session_id and entry["tracked"]:
-        # Re-tagging a resumed session would replace the work log entry title
-        # sent at log time with the bare ticket key (newest tag wins).
-        tagged = already_tagged(args.state_path, session_id, work_item_of(entry))
-        append_ledger(args.state_path, {"event": "session-start", "session_id": session_id,
-                                        "cwd": cwd, "source": payload.get("source"),
-                                        "ticketKey": entry["ticketKey"], "workItem": work_item_of(entry),
-                                        "branch": branch})
-        if not tagged:
-            emit_info_async(args.state_path, session_id, work_item_of(entry) or "unassigned",
-                            repo=os.path.basename(cwd.rstrip("/")))
-
-    lines = [
-        f"log-work skill — SessionStart for {cwd}",
-        "",
-        f'State: tracked={entry["tracked"]}, ticketKey={entry["ticketKey"] or "none"}, '
-        f'storedBranch={entry["branch"] or "none"}, pendingLog={entry["pendingLog"]}'
-        + (f', workItem={entry["workItem"]}' if entry.get("workItem") else ""),
-        f"Session: {session_id or 'unknown'}",
-        f"Git: isRepo={is_repo}, currentBranch={branch or 'n/a'}",
-        f"Ticket keys found in branch name: {', '.join(branch_keys) or 'none'}",
-        f"Ticket keys found in recent commits: {', '.join(commit_keys) or 'none'}",
-        f"Config: {json.dumps(config, sort_keys=True) if config else 'none'}",
-        "",
-        'ACTION REQUIRED: invoke the "log-work" skill now '
-        '(Skill tool, skill: "log-work", args: "session-start") to process this '
-        "session start before addressing the user's first message.",
-    ]
+    item = session_item(args.state_path, session_id) if session_id else None
+    if session_id:
+        append_ledger(args.state_path, {"event": "session-start", "session_id": session_id, "cwd": cwd,
+                                        "source": payload.get("source"), "branch": branch})
+    if item:  # resumed or compacted: keep its item, and don't overwrite the tag sent at log time
+        lines = [head, "", f"Session: {session_id}", f"Work item: {item} (already set for this session; nothing to do)"]
+    else:
+        if session_id:
+            emit_info_async(args.state_path, session_id, "unassigned", repo=os.path.basename(cwd.rstrip("/")))
+        lines = [
+            head, "",
+            f"Session: {session_id or 'unknown'}",
+            "Work item: none yet",
+            f"Branch: {branch or 'n/a (not a git repo)'}; ticket keys in it: {', '.join(extract_ticket_keys(branch or '')) or 'none'}",
+            f"Recent work items: {', '.join(recent_items(args.state_path)) or 'none'}",
+            f"Config: {json.dumps(config, sort_keys=True) if config else 'none'}",
+            "",
+            'ACTION REQUIRED: invoke the "log-work" skill now '
+            '(Skill tool, skill: "log-work", args: "session-start") to ask which work item this '
+            "session is for, before addressing the user's first message.",
+        ]
     print(wrap_context("\n".join(lines), args.format))
 
 
@@ -477,51 +354,28 @@ def build_parser():
     parser.add_argument("--state-path", default=DEFAULT_STATE_PATH)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("get")
-    p.add_argument("cwd")
-    p.set_defaults(func=cmd_get)
-
-    p = sub.add_parser("set-ticket")
-    p.add_argument("cwd")
-    p.add_argument("ticket_key")
-    p.add_argument("--branch", default=None)
-    p.add_argument("--session", default=None, help="session id, recorded in the ledger")
+    p = sub.add_parser("set-item", help="set this session's work item (ticket key or WORKLOG)")
+    p.add_argument("session")
+    p.add_argument("work_item")
+    p.add_argument("--cwd", default=os.getcwd())
     p.add_argument("--title", default="", help="ticket summary, published as the work item's title")
-    p.set_defaults(func=cmd_set_ticket)
+    p.set_defaults(func=cmd_set_item)
+
+    p = sub.add_parser("item", help="print this session's work item")
+    p.add_argument("session")
+    p.set_defaults(func=cmd_item)
 
     p = sub.add_parser("set-title", help="publish log_work.work_item.info (work item -> title)")
     p.add_argument("work_item")
     p.add_argument("title")
+    p.add_argument("--size", type=str.upper, choices=SIZES, default="", help="work item size (S/M/L/XL)")
+    p.add_argument("--type", type=str.lower, choices=TYPES, default="", help="work type (build/fix/investigate/other)")
     p.set_defaults(func=cmd_set_title)
-
-    p = sub.add_parser("set-pending")
-    p.add_argument("cwd")
-    p.add_argument("value", type=_parse_bool)
-    p.set_defaults(func=cmd_set_pending)
 
     p = sub.add_parser("set-tracked")
     p.add_argument("cwd")
     p.add_argument("value", type=_parse_bool)
     p.set_defaults(func=cmd_set_tracked)
-
-    p = sub.add_parser("set-last-logged-session")
-    p.add_argument("cwd")
-    p.add_argument("session_id")
-    p.set_defaults(func=cmd_set_last_logged_session)
-
-    p = sub.add_parser("clear")
-    p.add_argument("cwd")
-    p.set_defaults(func=cmd_clear)
-
-    p = sub.add_parser("extract-keys")
-    p.set_defaults(func=cmd_extract_keys)
-
-    p = sub.add_parser("git-username")
-    p.add_argument("cwd")
-    p.set_defaults(func=cmd_git_username)
-
-    p = sub.add_parser("slugify")
-    p.set_defaults(func=cmd_slugify)
 
     p = sub.add_parser("config", help="print config, set KEY VALUE, or unset KEY")
     p.add_argument("key", nargs="?")
@@ -530,9 +384,11 @@ def build_parser():
 
     p = sub.add_parser("emit-info", help="publish log_work.session.info (session -> work item)")
     p.add_argument("--session", required=True)
-    p.add_argument("--work-item", required=True)
+    p.add_argument("--work-item", default="", help="default: the item set for this session")
     p.add_argument("--title", default="")
     p.add_argument("--repo", default="")
+    p.add_argument("--size", type=str.upper, choices=SIZES, default="", help="work item size (WORKLOG items; for tickets use set-title --size)")
+    p.add_argument("--type", type=str.lower, choices=TYPES, default="", help="work type (WORKLOG items; for tickets use set-title --type)")
     p.add_argument("--dry-run", action="store_true")
     p.set_defaults(func=cmd_emit_info)
 

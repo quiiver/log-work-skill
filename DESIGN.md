@@ -1,6 +1,6 @@
 # log-work — Work Tracking Skill Design
 
-Date: 2026-08-20 (v1, Jira only) · Revised: 2026-10-06 (v2, Confluence work log, backfill, reports)
+Date: 2026-08-20 (v1, Jira only) · Revised: 2026-10-06 (v2, Confluence work log, backfill, reports) · 2026-11-05 (v3, work item per session, asked at start)
 Status: Implemented
 
 ## Purpose
@@ -26,32 +26,25 @@ having to remember to do it:
 - Work log lives in the user's Confluence personal space, under a
   view-restricted `Work Log` folder.
 - Not in scope: time tracking / formal Jira worklogs, multi-step status
-  workflows beyond an initial To Do → In Progress bump, cross-repo session
-  merging, automatic publishing of reports to anyone else.
+  workflows, ticket branches, cross-repo session merging, automatic publishing of reports to anyone else.
 
 ## Architecture
 
 Two integration points, one shared state store, two output stores:
 
 1. **SessionStart hook** — `state.py session-start` runs at every
-   startup/resume/clear and injects a context block (state + git facts).
-   That drives the catch-up and match-or-continue flow.
-2. **Manual `/log-work`** — log now, force a rematch, `backfill`, or `report`.
-3. **State file** `~/.claude/log-work-state.json`, keyed by absolute `cwd`:
-   ```json
-   {
-     "/Users/me/dev/some-repo": {
-       "ticketKey": "MZCLD-456",
-       "branch": "me/MZCLD-456-some-task",
-       "lastLoggedSessionId": null,
-       "pendingLog": false,
-       "tracked": true
-     }
-   }
-   ```
-   - `tracked: false` = opted out.
-   - `ticketKey: "WORKLOG"` is a sentinel: this directory's work has no
-     ticket, so log to Confluence only.
+   startup/resume/clear. A new session gets an `ACTION REQUIRED` block that
+   has the skill ask which work item it is for; a resumed or compacted one
+   already has an item and is left alone.
+2. **Manual `/log-work`** — log now, change the item, `backfill`, or `report`.
+3. **Session ledger** `~/.claude/log-work-sessions.jsonl` holds each
+   session's work item (`set-item` rows; newest wins). The work item
+   belongs to the session: nothing is inherited from the directory or the
+   branch, which is what made v2's per-directory ticket hard to reason
+   about (resumed sessions and stale branches picked up the wrong ticket).
+   The state file `~/.claude/log-work-state.json` keeps only per-directory
+   opt-outs (`{"/path": {"tracked": false}}`) and config. Unticketed work
+   gets its own `WORKLOG:<date>-<hex>` id per item.
 4. **Jira comments** on the resolved ticket (detail).
 5. **Confluence work log**: `Work Log/Work Log — YYYY-MM` pages, one per
    month, plus `Work Log/Reports/` for generated reports. All content is
@@ -80,28 +73,20 @@ not-found error on a cached ID clears that key and resolves it again once.
 
 > **No Stop/SessionEnd hook.** `Stop` fires after *every* assistant turn,
 > and `SessionEnd` gets a 1.5–60s budget with no documented MCP access, so
-> neither can reliably summarize and call Jira or Confluence. Instead,
-> `pendingLog` is set whenever a session resolves a ticket (or `WORKLOG`).
-> It is cleared only by an actual logging action: a SessionStart catch-up
-> or `/log-work`.
+> neither can reliably summarize and call Jira or Confluence. Sessions are
+> logged with `/log-work`; unlogged ones are caught by backfill. (v2 caught
+> them up at the next session start, which tied sessions to directories.)
 
 ## Flow
 
 ### SessionStart
 
-1. If `tracked` is `false`, stop.
-2. If `pendingLog` is `true`, write an honest summary of the previous
-   session from what's actually visible (resumed conversation, or
-   `git log`/`git status`). Never invent specifics. **Log the summary**
-   (below), then clear `pendingLog`.
-3. Decide continuation. If `ticketKey` is set and either the directory is
-   non-git or the current branch matches the stored `branch`, it's the same
-   task: skip matching and re-arm `pendingLog`. Otherwise, run Matching.
-4. Persist the resolved `ticketKey` and branch.
-5. Status bump (real tickets only, best-effort): if the ticket is in a "To
-   Do" status category and exactly one transition leads to "In Progress",
-   apply it; otherwise skip silently.
-6. Stay quiet — say one line at most, and nothing if nothing happened.
+1. Tracking off, or the session already has an item: stop, say nothing.
+2. Suggest up to 2 items: the one ticket key in the branch name, one JQL
+   search on the first message's keywords, and recent items from the ledger.
+3. Ask (`AskUserQuestion`): the suggestions, **New ticket**, **Work log only**.
+4. `state.py set-item <session> <KEY|WORKLOG>`; a new ticket is drafted,
+   confirmed, created and assigned first.
 
 ### Logging a summary
 
@@ -118,29 +103,6 @@ Entry format: `### YYYY-MM-DD — <title>[ — KEY]`, then Category (support,
 incident, tooling, docs, review, mentoring, investigation, meeting, other),
 What / outcome, Impact / who benefited, Effort (S/M/L), Links, and Status
 (done / ongoing / handed off / abandoned). Pages are sorted newest first.
-
-### Matching (only when not a continuation)
-
-1. **Branch key** (git only): if the branch name has exactly one Jira key
-   and it resolves, use it. Commit-message keys never override the branch.
-2. **JQL search**:
-   `project = <jiraProject> AND assignee = currentUser() AND statusCategory != Done`,
-   plus keywords from the directory name, README and the task at hand. If
-   nothing matches, drop the keywords and rank the results yourself.
-3. **Ask the user** (`AskUserQuestion`): up to 2 candidates, plus these two
-   options, always present: **Create a new <jiraProject> ticket** and **Log to
-   Confluence work log only**. Any extra candidates go in the question text.
-4. **Create a ticket** only if the user picks that option. Draft the summary
-   and description, wait for explicit confirmation, create the ticket as a
-   Task in `<jiraProject>`, and assign it to the user.
-5. **Ticket branch** (git only, not for `WORKLOG`): if the branch doesn't
-   already contain the key, check out `<user>/<KEY>-<slug>`. Fall back to an
-   existing branch of that name, or to staying on the current branch. Never
-   force a destructive checkout.
-
-Ticket creation is the only step that always needs confirmation, because it
-is visible to the team. Choosing the work log is the user's call in step 3.
-Branch creation is automatic and reversible.
 
 ### Backfill (`/log-work backfill [since]`, default 90 days)
 
@@ -179,8 +141,8 @@ Merge rules:
 ### Manual `/log-work`
 
 - **No arguments:** summarize the conversation so far and log the summary
-  (resolving a ticket first if needed), then clear `pendingLog`.
-- **"Wrong ticket":** clear the state for `cwd` and re-run Matching.
+  (asking for the work item first if the session has none).
+- **"Wrong ticket":** `set-item` again; the newest item wins.
 - **`backfill` / `report`:** run the procedures above.
 
 ## Opt-out
@@ -194,34 +156,21 @@ stays off until the user explicitly asks to resume, or runs
 - A failure in Jira or Confluence is reported in one line and never blocks
   the user's actual request.
 - If only one half of a dual write succeeds (Jira comment + work log
-  entry), `pendingLog` is still cleared, and the skill says which half
-  failed.
-- Status-bump failures or ambiguity are skipped silently.
+  entry), the skill says which half failed.
 
 ## Testing
 
-- `scripts/test_state.py` holds 18 stdlib `unittest` tests: state CRUD,
-  ticket-key extraction, slugify, git username and session-start output.
-  Run with `cd scripts && python3 -m unittest test_state`.
+- `scripts/test_*.py` are stdlib `unittest` tests: run
+  `python3 -m unittest discover -s scripts`.
 - Manual scenarios (skill + hooks + MCP, not unit-testable):
-  1. The branch contains a valid key → matched with no questions.
-  2. No key in the branch → JQL search, then the three-way question.
-  3. "Create a new ticket" → drafted ticket, confirmed, then created
-     and assigned.
-  4. Same directory and branch in a new session → continuation, no rematch.
-  5. Non-git directory → no key scan; goes straight to search and the
-     question.
-  6. Session ends without `/log-work` → the next SessionStart logs it first.
+  1. New session on a branch with one ticket key → that key is the first suggestion.
+  2. New session, non-git directory → JQL suggestions from the first message.
+  3. "New ticket" → drafted, confirmed, created, assigned, set.
+  4. "Work log only" → a new `WORKLOG:` id; no Jira calls; a full work log entry when logged.
+  5. Resumed session → keeps its item, no question.
+  6. Second new session in the same directory → asked again (recent items offered).
   7. Opted-out directory → SessionStart does nothing.
-  8. Ticket already In Progress → no transition.
-  9. `/log-work` mid-session → logs now and clears `pendingLog`.
-  10. Matched while on `main` → checks out the `<user>/<KEY>-<slug>` branch.
-  11. Already on the ticket branch → no new branch.
-  12. "Log to Confluence work log only" → `WORKLOG` saved; no Jira calls,
-      branch or status bump; a full entry lands on this month's page.
-  13. Ticketed log → a Jira comment **and** a short pointer entry.
-  14. First log of a new month → the month page is created as private, and
-      `getConfluenceContentRestrictionState` returns `VIEW_RESTRICTED`.
-  15. `backfill 90` → per-month pages with no duplicates, personal projects
-      held back, and dates and PR states that match GitHub.
-  16. `report Q3 2026` → a private page under Reports, with coverage notes.
+  8. `/log-work` with no item set → asks, then logs.
+  9. Ticketed log → a Jira comment **and** a short pointer entry.
+  10. First log of a new month → the page is created private (`VIEW_RESTRICTED`).
+  11. `backfill 90` / `report Q3 2026` → as above.
