@@ -118,6 +118,7 @@ item is `state.py item <Session id>` (a Jira key, or a `WORKLOG:<date>-<hex>` id
   the entry title as the item's title.
   Add `--size <S|M|L|XL>` and `--type <build|fix|investigate|other>` (see **Sizing**, **Work type**) for `WORKLOG` items; for tickets run `set-title <ticket> "<Jira summary>" --size <size> --type <type>`.
   A failure here is non-fatal: mention it in one line.
+- For a `WORKLOG:` item, rename the session to `[WORKLOG] <entry title>` (see **Session name**).
 - `set-item --title` publishes the ticket's Jira summary (`log_work.work_item.info`)
   as the dashboard's title for that work item; omit `--title` for `WORKLOG`. To
   set or fix one without retagging: `state.py set-title <ticket> "<Jira summary>"`.
@@ -185,8 +186,20 @@ sessions keep their item (the hook says so and asks nothing).
    For a new ticket, draft a summary and description from the first message,
    confirm them with the user, `createJiraIssue` (`project: "<jiraProject>"`,
    `issueType: "Task"`), assign it to `<accountId>` with `editJiraIssue`, then set it.
-5. Then get on with the user's request. One short line at most ("Tracking
+5. **Name the session** (see **Session name**).
+6. Then get on with the user's request. One short line at most ("Tracking
    this session as MZCLD-42").
+
+## Session name
+
+Name the session after its work item, so the sidebar shows it:
+`[<KEY>] <Jira summary>`, or `[WORKLOG] <short task description>` for work
+log items (from the first message, about 6 words). Rename whenever the item
+changes (`set-item` again), and for `WORKLOG` items once more at log time with
+the entry title. Use `mcp__ccd_session_mgmt__set_session_title` with
+`session_id: "self"` (the desktop app). If that tool isn't available (CLI),
+skip it silently. If the app asks the user to approve a rename, that's fine;
+if they decline, don't retry.
 
 ## Manual procedure (`/log-work`)
 
@@ -206,6 +219,7 @@ the same message):
 If the user says the work item is wrong ("wrong ticket", "this is really
 MZCLD-9"): ask or take the new one and run `set-item` again. The newest
 item wins; re-send the log tag with `emit-info` if the session was already logged.
+Then rename the session (see **Session name**).
 
 ## Backfill procedure (`/log-work backfill <since>`)
 
